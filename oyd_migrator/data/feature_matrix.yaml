@@ -1,0 +1,156 @@
+# Feature Comparison Matrix Data
+# Used by the CLI to display and generate comparison reports
+
+metadata:
+  version: "1.0.0"
+  last_updated: "2025-01-31"
+
+architectures:
+  oyd:
+    name: "Azure OpenAI On Your Data"
+    short_name: "OYD"
+    status: "deprecated"
+    documentation: "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/use-your-data"
+
+  search_tool:
+    name: "Foundry Agent + Azure AI Search Tool"
+    short_name: "Search Tool"
+    status: "ga"
+    documentation: "https://learn.microsoft.com/azure/ai-foundry/agents/how-to/tools/ai-search"
+
+  knowledge_base:
+    name: "Foundry Agent + Foundry IQ Knowledge Base"
+    short_name: "IQ KB"
+    status: "preview"
+    documentation: "https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect"
+
+features:
+  - category: "Data Source Support"
+    items:
+      - name: "Azure AI Search"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Azure Blob Storage"
+        oyd: true
+        search_tool: "Via indexer"
+        knowledge_base: true
+
+      - name: "SharePoint"
+        oyd: false
+        search_tool: false
+        knowledge_base: true
+
+      - name: "OneLake"
+        oyd: false
+        search_tool: false
+        knowledge_base: true
+
+      - name: "Web URLs"
+        oyd: true
+        search_tool: false
+        knowledge_base: true
+
+  - category: "Search Capabilities"
+    items:
+      - name: "Keyword Search"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Semantic Search"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Vector Search"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Hybrid Search"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Query Decomposition"
+        oyd: false
+        search_tool: false
+        knowledge_base: true
+
+  - category: "Agent Capabilities"
+    items:
+      - name: "Multi-turn Conversations"
+        oyd: false
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Tool Orchestration"
+        oyd: false
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Code Interpreter"
+        oyd: false
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Agentic Reasoning"
+        oyd: false
+        search_tool: "Basic"
+        knowledge_base: "Full"
+
+  - category: "Enterprise Features"
+    items:
+      - name: "Managed Identity"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "VNet Support"
+        oyd: true
+        search_tool: "Standard"
+        knowledge_base: "Standard"
+
+      - name: "Private Endpoints"
+        oyd: true
+        search_tool: "Standard"
+        knowledge_base: "Standard"
+
+      - name: "Document ACLs"
+        oyd: "Entra groups"
+        search_tool: "filter param"
+        knowledge_base: "ACL header"
+
+  - category: "Response Features"
+    items:
+      - name: "Citations"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+      - name: "Activity Trace"
+        oyd: false
+        search_tool: false
+        knowledge_base: true
+
+      - name: "Streaming"
+        oyd: true
+        search_tool: true
+        knowledge_base: true
+
+recommendations:
+  search_tool:
+    - "Simple RAG scenarios with existing search indexes"
+    - "Direct migration from OYD with minimal changes"
+    - "Applications needing precise control over search parameters"
+    - "Single-index or few-index scenarios"
+    - "Production workloads requiring GA stability"
+
+  knowledge_base:
+    - "Complex reasoning scenarios"
+    - "Multi-source retrieval (Search, SharePoint, OneLake, Web)"
+    - "Applications that benefit from query planning"
+    - "Scenarios requiring detailed activity tracing"
+    - "Development/preview workloads"

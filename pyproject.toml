@@ -1,0 +1,120 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oyd-migrator"
+version = "1.0.0"
+description = "Migrate Azure OpenAI On Your Data (OYD) to Foundry Agent Service"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Microsoft", email = "azuresearch@microsoft.com" }
+]
+keywords = [
+    "azure",
+    "openai",
+    "foundry",
+    "migration",
+    "ai-search",
+    "rag",
+    "agents"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    # CLI Framework
+    "typer[all]>=0.12.0",
+    "questionary>=2.0.0",
+    "rich>=13.7.0",
+
+    # Azure SDKs - Authentication
+    "azure-identity>=1.15.0",
+
+    # Azure SDKs - AI Services
+    "azure-ai-projects>=1.0.0b1",
+    "azure-search-documents>=11.6.0",
+
+    # Azure SDKs - Management
+    "azure-mgmt-search>=9.0.0",
+    "azure-mgmt-cognitiveservices>=13.5.0",
+    "azure-mgmt-resource>=23.0.0",
+    "azure-mgmt-authorization>=4.0.0",
+
+    # Azure ML SDK (for connections)
+    "azure-ai-ml>=1.20.0",
+
+    # Configuration & Validation
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "python-dotenv>=1.0.0",
+
+    # Utilities
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0.0",
+    "httpx>=0.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "types-PyYAML>=6.0.0",
+]
+
+[project.scripts]
+oyd-migrator = "oyd_migrator.cli.main:app"
+
+[project.urls]
+Documentation = "https://github.com/farzad528/azure-openai-on-your-data-migrator"
+Issues = "https://github.com/farzad528/azure-openai-on-your-data-migrator/issues"
+Source = "https://github.com/farzad528/azure-openai-on-your-data-migrator"
+
+[tool.hatch.build.targets.wheel]
+packages = ["oyd_migrator"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["oyd_migrator"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
