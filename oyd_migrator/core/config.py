@@ -65,6 +65,12 @@ class FoundryConfig(BaseModel):
     model_deployment: str = Field(
         default="gpt-4.1", description="Model deployment to use for agents"
     )
+    location: str = Field(
+        default="eastus", description="Azure region for new project"
+    )
+    hub_resource_id: str | None = Field(
+        default=None, description="Parent Foundry Hub resource ID"
+    )
 
 
 class MigrationOptions(BaseModel):

@@ -129,11 +129,11 @@ def run_migration_wizard(state: MigrationState, console: Console) -> MigrationSt
             )
             state.migration_options.create_new_project = False
         else:
-            state.foundry_config = _configure_new_project(console)
+            state.foundry_config = _configure_new_project(console, provisioner)
             state.migration_options.create_new_project = True
     else:
         console.print(f"\n{Display.INFO} No existing Foundry projects found.\n")
-        state.foundry_config = _configure_new_project(console)
+        state.foundry_config = _configure_new_project(console, provisioner)
         state.migration_options.create_new_project = True
 
     # Select model
@@ -231,9 +231,49 @@ def _display_comparison(console: Console) -> None:
     console.print(table)
 
 
-def _configure_new_project(console: Console) -> FoundryConfig:
+def _configure_new_project(console: Console, provisioner=None) -> FoundryConfig:
     """Configure a new Foundry project."""
     console.print("\nEnter details for the new Foundry project:\n")
+    
+    # If provisioner is provided, let user select from existing hubs
+    hub_resource_id = None
+    if provisioner:
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                transient=True,
+            ) as progress:
+                progress.add_task("Checking for existing Foundry Hubs...", total=None)
+                hubs = provisioner.list_hubs()
+            
+            if hubs:
+                console.print(f"\n{Display.INFO} Found {len(hubs)} existing Foundry Hub(s).\n")
+                console.print("[dim]A Hub provides the AI Services connection for your project.[/dim]\n")
+                
+                hub_choices = [
+                    questionary.Choice(
+                        title=f"{h.name} ({h.resource_group}) - {h.location}",
+                        value=h,
+                    )
+                    for h in hubs
+                ]
+                hub_choices.append(questionary.Choice(
+                    title="Skip - Create project without Hub (advanced)",
+                    value=None,
+                ))
+                
+                selected_hub = questionary.select(
+                    "Select a Foundry Hub for your new project:",
+                    choices=hub_choices,
+                ).ask()
+                
+                if selected_hub:
+                    hub_resource_id = selected_hub.resource_id
+                    console.print(f"\n{Display.SUCCESS} Using Hub: {selected_hub.name}\n")
+        except Exception as e:
+            logger.debug(f"Could not list hubs: {e}")
 
     project_name = questionary.text(
         "Project name:",
@@ -245,12 +285,25 @@ def _configure_new_project(console: Console) -> FoundryConfig:
         "Resource group:",
         validate=lambda x: len(x) > 0 or "Required",
     ).ask()
+    
+    location = questionary.text(
+        "Location (Azure region):",
+        default="eastus",
+        validate=lambda x: len(x) > 0 or "Required",
+    ).ask()
 
     if not all([project_name, resource_group]):
         raise KeyboardInterrupt()
 
-    return FoundryConfig(
+    config = FoundryConfig(
         project_name=project_name,
         resource_group=resource_group,
         project_endpoint="",  # Will be set after creation
+        location=location,
     )
+    
+    # Store hub_resource_id for later use during creation
+    if hub_resource_id:
+        config.hub_resource_id = hub_resource_id
+    
+    return config

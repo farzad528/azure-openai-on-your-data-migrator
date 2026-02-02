@@ -96,6 +96,63 @@ class FoundryProvisionerService:
 
         return projects
 
+    def list_hubs(self) -> list[FoundryProject]:
+        """
+        List existing Foundry Hubs (AI Foundry resources).
+        
+        A Hub provides the AI Services connection and acts as a parent for Projects.
+
+        Returns:
+            List of Foundry hubs (using FoundryProject model for simplicity)
+        """
+        import httpx
+        from oyd_migrator.core.constants import AzureScopes
+
+        hubs = []
+
+        try:
+            token = self.credential.get_token(AzureScopes.MANAGEMENT)
+
+            url = (
+                f"https://management.azure.com/subscriptions/{self.subscription_id}"
+                f"/providers/Microsoft.MachineLearningServices/workspaces"
+                f"?api-version=2024-04-01"
+            )
+
+            headers = {
+                "Authorization": f"Bearer {token.token}",
+                "Content-Type": "application/json",
+            }
+
+            response = httpx.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            for workspace in data.get("value", []):
+                kind = workspace.get("kind", "")
+
+                if kind == "Hub":
+                    rg = workspace["id"].split("/resourceGroups/")[1].split("/")[0]
+
+                    hub = FoundryProject(
+                        name=workspace["name"],
+                        resource_name=workspace["name"],
+                        resource_group=rg,
+                        subscription_id=self.subscription_id,
+                        location=workspace.get("location", ""),
+                        endpoint="",  # Hubs don't have direct endpoints
+                        has_agent_service=False,
+                    )
+                    hubs.append(hub)
+
+            logger.debug(f"Found {len(hubs)} Foundry hub(s)")
+
+        except Exception as e:
+            logger.warning(f"Could not list Foundry hubs: {e}")
+
+        return hubs
+
     def _build_project_endpoint(self, workspace: dict, properties: dict) -> str:
         """
         Build the project endpoint URL.

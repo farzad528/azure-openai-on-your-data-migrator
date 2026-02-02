@@ -80,9 +80,12 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
                 subscription_id=state.azure_config.subscription_id,
             )
 
+            # Pass hub_resource_id and location if configured
             project = provisioner.create_project(
                 name=state.foundry_config.project_name,
                 resource_group=state.foundry_config.resource_group,
+                location=getattr(state.foundry_config, 'location', None),
+                hub_resource_id=getattr(state.foundry_config, 'hub_resource_id', None),
             )
             state.foundry_config.project_endpoint = project.endpoint
             console.print(f"{Display.SUCCESS} Project created: {project.name}\n")
