@@ -42,30 +42,61 @@ def run_discovery_wizard(state: MigrationState, console: Console) -> MigrationSt
     auth_service = AzureAuthService()
     credential = auth_service.get_credential_from_config(state.azure_config)
 
-    # Discover AOAI resources
-    console.print("[bold]Scanning for Azure OpenAI resources with OYD...[/bold]\n")
+    # Ask about filtering to speed up discovery
+    console.print(f"{Display.INFO} To speed up discovery, you can optionally filter by resource group.\n")
+    
+    filter_choice = questionary.select(
+        "How would you like to discover resources?",
+        choices=[
+            questionary.Choice("Scan entire subscription (slower)", value="all"),
+            questionary.Choice("Filter by resource group (faster, recommended)", value="rg"),
+            questionary.Choice("Manually specify AOAI resource (fastest)", value="manual"),
+        ],
+        default="rg",
+    ).ask()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Discovering AOAI resources...", total=None)
+    if not filter_choice:
+        raise KeyboardInterrupt()
 
-        discovery_service = AOAIDiscoveryService(
-            credential=credential,
-            subscription_id=state.azure_config.subscription_id,
-        )
-        deployments = discovery_service.discover_oyd_deployments()
-        progress.update(task, completed=True)
+    resource_group = None
+    deployments = []
+
+    if filter_choice == "manual":
+        deployments = _manual_aoai_entry(console)
+    else:
+        if filter_choice == "rg":
+            resource_group = questionary.text(
+                "Enter resource group name:",
+                validate=lambda x: len(x) > 0 or "Resource group name is required",
+            ).ask()
+            if not resource_group:
+                raise KeyboardInterrupt()
+            console.print(f"\n{Display.INFO} Scanning resource group: [cyan]{resource_group}[/cyan]\n")
+
+        # Discover AOAI resources
+        console.print("[bold]Scanning for Azure OpenAI resources with OYD...[/bold]\n")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Discovering AOAI resources...", total=None)
+
+            discovery_service = AOAIDiscoveryService(
+                credential=credential,
+                subscription_id=state.azure_config.subscription_id,
+            )
+            deployments = discovery_service.discover_oyd_deployments(resource_group=resource_group)
+            progress.update(task, completed=True)
 
     if not deployments:
-        console.print(f"\n{Display.WARNING} No OYD configurations found in this subscription.\n")
+        console.print(f"\n{Display.WARNING} No OYD configurations found.\n")
 
         # Ask if they want to manually specify
         manual = questionary.confirm(
             "Would you like to manually specify an AOAI resource?",
-            default=False,
+            default=True,
         ).ask()
 
         if manual:
