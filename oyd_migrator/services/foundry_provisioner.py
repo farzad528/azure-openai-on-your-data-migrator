@@ -96,19 +96,20 @@ class FoundryProvisionerService:
 
         return projects
 
-    def list_hubs(self) -> list[FoundryProject]:
+    def list_foundry_accounts(self) -> list[FoundryProject]:
         """
-        List existing Foundry Hubs (AI Foundry resources).
+        List existing Foundry Accounts (AI Foundry parent resources).
         
-        A Hub provides the AI Services connection and acts as a parent for Projects.
+        A Foundry Account provides the AI Services connection and acts as a parent for Projects.
+        (Previously known as "Hub" in older Azure terminology)
 
         Returns:
-            List of Foundry hubs (using FoundryProject model for simplicity)
+            List of Foundry accounts (using FoundryProject model for simplicity)
         """
         import httpx
         from oyd_migrator.core.constants import AzureScopes
 
-        hubs = []
+        accounts = []
 
         try:
             token = self.credential.get_token(AzureScopes.MANAGEMENT)
@@ -132,26 +133,30 @@ class FoundryProvisionerService:
             for workspace in data.get("value", []):
                 kind = workspace.get("kind", "")
 
+                # "Hub" kind represents Foundry Accounts in the API
                 if kind == "Hub":
                     rg = workspace["id"].split("/resourceGroups/")[1].split("/")[0]
 
-                    hub = FoundryProject(
+                    account = FoundryProject(
                         name=workspace["name"],
                         resource_name=workspace["name"],
                         resource_group=rg,
                         subscription_id=self.subscription_id,
                         location=workspace.get("location", ""),
-                        endpoint="",  # Hubs don't have direct endpoints
+                        endpoint="",  # Accounts don't have direct endpoints
                         has_agent_service=False,
                     )
-                    hubs.append(hub)
+                    accounts.append(account)
 
-            logger.debug(f"Found {len(hubs)} Foundry hub(s)")
+            logger.debug(f"Found {len(accounts)} Foundry account(s)")
 
         except Exception as e:
-            logger.warning(f"Could not list Foundry hubs: {e}")
+            logger.warning(f"Could not list Foundry accounts: {e}")
 
-        return hubs
+        return accounts
+    
+    # Alias for backward compatibility
+    list_hubs = list_foundry_accounts
 
     def _build_project_endpoint(self, workspace: dict, properties: dict) -> str:
         """

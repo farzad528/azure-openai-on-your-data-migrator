@@ -69,7 +69,7 @@ class FoundryConfig(BaseModel):
         default="eastus", description="Azure region for new project"
     )
     hub_resource_id: str | None = Field(
-        default=None, description="Parent Foundry Hub resource ID"
+        default=None, description="Parent Foundry Account resource ID (provides AI Services connection)"
     )
 
 

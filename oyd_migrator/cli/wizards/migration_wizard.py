@@ -235,8 +235,8 @@ def _configure_new_project(console: Console, provisioner=None) -> FoundryConfig:
     """Configure a new Foundry project."""
     console.print("\nEnter details for the new Foundry project:\n")
     
-    # If provisioner is provided, let user select from existing hubs
-    hub_resource_id = None
+    # If provisioner is provided, let user select from existing Foundry Accounts
+    foundry_account_id = None
     if provisioner:
         try:
             with Progress(
@@ -245,35 +245,35 @@ def _configure_new_project(console: Console, provisioner=None) -> FoundryConfig:
                 console=console,
                 transient=True,
             ) as progress:
-                progress.add_task("Checking for existing Foundry Hubs...", total=None)
-                hubs = provisioner.list_hubs()
+                progress.add_task("Checking for existing Foundry Accounts...", total=None)
+                accounts = provisioner.list_foundry_accounts()
             
-            if hubs:
-                console.print(f"\n{Display.INFO} Found {len(hubs)} existing Foundry Hub(s).\n")
-                console.print("[dim]A Hub provides the AI Services connection for your project.[/dim]\n")
+            if accounts:
+                console.print(f"\n{Display.INFO} Found {len(accounts)} existing Foundry Account(s).\n")
+                console.print("[dim]A Foundry Account provides the AI Services connection for your project.[/dim]\n")
                 
-                hub_choices = [
+                account_choices = [
                     questionary.Choice(
-                        title=f"{h.name} ({h.resource_group}) - {h.location}",
-                        value=h,
+                        title=f"{a.name} ({a.resource_group}) - {a.location}",
+                        value=a,
                     )
-                    for h in hubs
+                    for a in accounts
                 ]
-                hub_choices.append(questionary.Choice(
-                    title="Skip - Create project without Hub (advanced)",
+                account_choices.append(questionary.Choice(
+                    title="Skip - Create standalone project (advanced)",
                     value=None,
                 ))
                 
-                selected_hub = questionary.select(
-                    "Select a Foundry Hub for your new project:",
-                    choices=hub_choices,
+                selected_account = questionary.select(
+                    "Select a Foundry Account for your new project:",
+                    choices=account_choices,
                 ).ask()
                 
-                if selected_hub:
-                    hub_resource_id = selected_hub.resource_id
-                    console.print(f"\n{Display.SUCCESS} Using Hub: {selected_hub.name}\n")
+                if selected_account:
+                    foundry_account_id = selected_account.resource_id
+                    console.print(f"\n{Display.SUCCESS} Using Foundry Account: {selected_account.name}\n")
         except Exception as e:
-            logger.debug(f"Could not list hubs: {e}")
+            logger.debug(f"Could not list Foundry accounts: {e}")
 
     project_name = questionary.text(
         "Project name:",
@@ -302,8 +302,8 @@ def _configure_new_project(console: Console, provisioner=None) -> FoundryConfig:
         location=location,
     )
     
-    # Store hub_resource_id for later use during creation
-    if hub_resource_id:
-        config.hub_resource_id = hub_resource_id
+    # Store foundry_account_id (hub_resource_id) for later use during creation
+    if foundry_account_id:
+        config.hub_resource_id = foundry_account_id
     
     return config
