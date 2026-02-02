@@ -97,38 +97,40 @@ class FoundryProvisionerService:
         return projects
 
     def _build_project_endpoint(self, workspace: dict, properties: dict) -> str:
-        """Build the project endpoint URL."""
-        # The Foundry Agent Service endpoint is based on the AI Services connection
-        # Format: https://{ai-services-resource}.cognitiveservices.azure.com/
-        # or: https://{ai-services-resource}.services.ai.azure.com/
+        """
+        Build the project endpoint URL.
         
-        # First try to get from workspaceUrl if available
+        There are two main endpoint formats depending on the Foundry setup:
+        
+        1. Newer Foundry Accounts (services.ai.azure.com):
+           https://{foundry-account-name}.services.ai.azure.com/api/projects/{project-name}
+           
+        2. Older/Legacy with AI Services connection (cognitiveservices.azure.com):
+           https://{ai-services-resource}.cognitiveservices.azure.com/
+        
+        The actual endpoint is determined when we fetch workspace connections.
+        This method provides a fallback for the newer services.ai.azure.com format.
+        """
+        # First try to get from workspaceUrl if available (some projects have this set)
         workspace_url = properties.get("workspaceUrl", "")
         if workspace_url:
             return workspace_url
 
-        # Get the AI Services endpoint from the hub's connected resources
-        # The hub resource ID tells us where to look
+        # Get hub info to construct the services.ai.azure.com endpoint
         hub_id = properties.get("hubResourceId", "")
         workspace_name = workspace["name"]
-        location = workspace.get("location", "")
         
         if hub_id:
-            # Extract hub info and construct endpoint
             # Hub ID format: /subscriptions/.../resourceGroups/.../providers/Microsoft.MachineLearningServices/workspaces/{hub-name}
             parts = hub_id.split("/")
             if len(parts) >= 9:
-                rg = parts[4]  # resourceGroups/{rg}
                 hub_name = parts[-1]
                 
-                # The AI Services account is typically named with pattern ai-{hub-name}{random}
-                # We'll construct the endpoint using the standard format
-                # This will be validated when we actually try to connect
-                
-                # Try the new services.ai.azure.com format first
+                # For newer Foundry, the Hub name is often the Foundry Account name
+                # Format: https://{foundry-account}.services.ai.azure.com/api/projects/{project}
                 return f"https://{hub_name}.services.ai.azure.com/api/projects/{workspace_name}"
         
-        # Fallback: use the workspace name directly
+        # Fallback: use the workspace name as the Foundry Account name
         return f"https://{workspace_name}.services.ai.azure.com/api/projects/{workspace_name}"
     
     def _get_ai_services_endpoint(self, project: 'FoundryProject', token: str) -> str | None:
