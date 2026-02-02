@@ -67,10 +67,10 @@ class FoundryProvisionerService:
 
                     # Extract endpoint from properties
                     props = workspace.get("properties", {})
-                    discovery_url = props.get("discoveryUrl", "")
 
-                    # Build project endpoint
-                    endpoint = self._build_project_endpoint(workspace, props)
+                    # Build initial project with placeholder endpoint
+                    # We'll update this with the real endpoint from connections
+                    placeholder_endpoint = self._build_project_endpoint(workspace, props)
 
                     project = FoundryProject(
                         name=workspace["name"],
@@ -78,9 +78,15 @@ class FoundryProvisionerService:
                         resource_group=rg,
                         subscription_id=self.subscription_id,
                         location=workspace.get("location", ""),
-                        endpoint=endpoint,
+                        endpoint=placeholder_endpoint,
                         has_agent_service=True,  # Assume true for Projects
                     )
+                    
+                    # Try to get the real AI Services endpoint from connections
+                    real_endpoint = self._get_ai_services_endpoint(project, token.token)
+                    if real_endpoint:
+                        project.endpoint = real_endpoint
+                    
                     projects.append(project)
 
             logger.debug(f"Found {len(projects)} Foundry project(s)")
@@ -92,36 +98,157 @@ class FoundryProvisionerService:
 
     def _build_project_endpoint(self, workspace: dict, properties: dict) -> str:
         """Build the project endpoint URL."""
-        # The endpoint format is:
-        # https://{resource-name}.services.ai.azure.com/api/projects/{project-name}
+        # The Foundry Agent Service endpoint is based on the AI Services connection
+        # Format: https://{ai-services-resource}.cognitiveservices.azure.com/
+        # or: https://{ai-services-resource}.services.ai.azure.com/
+        
+        # First try to get from workspaceUrl if available
+        workspace_url = properties.get("workspaceUrl", "")
+        if workspace_url:
+            return workspace_url
 
-        # Try to extract from discovery URL or build from workspace info
-        discovery_url = properties.get("discoveryUrl", "")
-
-        if discovery_url:
-            # Extract the base URL
-            # Format: https://{region}.api.azureml.ms/discovery/{subscription}/...
-            # We need to transform to the actual endpoint
-            pass
-
-        # Build from workspace properties
+        # Get the AI Services endpoint from the hub's connected resources
+        # The hub resource ID tells us where to look
+        hub_id = properties.get("hubResourceId", "")
         workspace_name = workspace["name"]
         location = workspace.get("location", "")
-
-        # The actual endpoint structure varies - this is an approximation
-        # In production, you'd get this from the workspace properties
-        endpoint = properties.get("workspaceUrl", "")
-
-        if not endpoint:
-            # Fallback construction
-            hub_id = properties.get("hubResourceId", "")
-            if hub_id:
-                hub_name = hub_id.split("/")[-1]
-                endpoint = f"https://{hub_name}.services.ai.azure.com/api/projects/{workspace_name}"
-            else:
-                endpoint = f"https://{workspace_name}.services.ai.azure.com/api/projects/{workspace_name}"
-
-        return endpoint
+        
+        if hub_id:
+            # Extract hub info and construct endpoint
+            # Hub ID format: /subscriptions/.../resourceGroups/.../providers/Microsoft.MachineLearningServices/workspaces/{hub-name}
+            parts = hub_id.split("/")
+            if len(parts) >= 9:
+                rg = parts[4]  # resourceGroups/{rg}
+                hub_name = parts[-1]
+                
+                # The AI Services account is typically named with pattern ai-{hub-name}{random}
+                # We'll construct the endpoint using the standard format
+                # This will be validated when we actually try to connect
+                
+                # Try the new services.ai.azure.com format first
+                return f"https://{hub_name}.services.ai.azure.com/api/projects/{workspace_name}"
+        
+        # Fallback: use the workspace name directly
+        return f"https://{workspace_name}.services.ai.azure.com/api/projects/{workspace_name}"
+    
+    def _get_ai_services_endpoint(self, project: 'FoundryProject', token: str) -> str | None:
+        """
+        Get the AI Services endpoint from project connections during listing.
+        
+        Args:
+            project: Foundry project (partially populated)
+            token: Already-acquired bearer token
+            
+        Returns:
+            AI Services endpoint URL, or None if not found
+        """
+        import httpx
+        
+        try:
+            # List connections for the workspace
+            url = (
+                f"https://management.azure.com/subscriptions/{self.subscription_id}"
+                f"/resourceGroups/{project.resource_group}"
+                f"/providers/Microsoft.MachineLearningServices/workspaces/{project.name}"
+                f"/connections?api-version=2024-07-01-preview"
+            )
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            
+            response = httpx.get(url, headers=headers, timeout=30)
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            
+            # Find the AIServices connection (preferred) or AzureOpenAI connection
+            for conn in data.get("value", []):
+                props = conn.get("properties", {})
+                category = props.get("category", "")
+                
+                if category == "AIServices":
+                    target = props.get("target", "")
+                    if target:
+                        logger.debug(f"Found AIServices endpoint for {project.name}: {target}")
+                        return target
+            
+            # Fallback: try AzureOpenAI connection
+            for conn in data.get("value", []):
+                props = conn.get("properties", {})
+                category = props.get("category", "")
+                
+                if category == "AzureOpenAI":
+                    target = props.get("target", "")
+                    if target:
+                        # Convert OpenAI endpoint format to cognitiveservices format
+                        # e.g., https://x.openai.azure.com/ -> https://x.cognitiveservices.azure.com/
+                        if ".openai.azure.com" in target:
+                            target = target.replace(".openai.azure.com", ".cognitiveservices.azure.com")
+                        logger.debug(f"Using AzureOpenAI endpoint for {project.name}: {target}")
+                        return target
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"Could not get AI Services endpoint for {project.name}: {e}")
+            return None
+    
+    def get_project_agent_endpoint(self, project: 'FoundryProject') -> str | None:
+        """
+        Get the actual AI Services endpoint for Agent Service from project connections.
+        
+        This fetches the AIServices connection from the workspace to get the correct endpoint.
+        
+        Args:
+            project: Foundry project
+            
+        Returns:
+            The AI Services endpoint URL, or None if not found
+        """
+        import httpx
+        from oyd_migrator.core.constants import AzureScopes
+        
+        try:
+            token = self.credential.get_token(AzureScopes.MANAGEMENT)
+            
+            # List connections for the workspace
+            url = (
+                f"https://management.azure.com/subscriptions/{self.subscription_id}"
+                f"/resourceGroups/{project.resource_group}"
+                f"/providers/Microsoft.MachineLearningServices/workspaces/{project.name}"
+                f"/connections?api-version=2024-07-01-preview"
+            )
+            
+            headers = {
+                "Authorization": f"Bearer {token.token}",
+                "Content-Type": "application/json",
+            }
+            
+            response = httpx.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Find the AIServices connection
+            for conn in data.get("value", []):
+                props = conn.get("properties", {})
+                category = props.get("category", "")
+                
+                if category == "AIServices":
+                    target = props.get("target", "")
+                    if target:
+                        logger.debug(f"Found AIServices endpoint: {target}")
+                        return target
+            
+            logger.warning(f"No AIServices connection found for project {project.name}")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Could not get agent endpoint for {project.name}: {e}")
+            return None
 
     def create_project(
         self,
