@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import questionary
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -176,7 +177,7 @@ def run_discovery_wizard(state: MigrationState, console: Console) -> MigrationSt
 
 def _display_deployments(deployments: list[OYDDeployment], console: Console) -> None:
     """Display a table of discovered deployments."""
-    table = Table(title="Discovered OYD Deployments", box="ROUNDED")
+    table = Table(title="Discovered OYD Deployments", box=box.ROUNDED)
     table.add_column("#", style="dim")
     table.add_column("Resource", style="cyan")
     table.add_column("Deployment", style="green")

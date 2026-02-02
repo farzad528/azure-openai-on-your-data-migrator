@@ -5,8 +5,10 @@ from typing import Optional
 import uuid
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from oyd_migrator.core.config import get_settings, MigrationState
 from oyd_migrator.core.constants import Display, MigrationPath
@@ -166,7 +168,7 @@ def sessions_command(
         console.print(f"{Display.INFO} No saved sessions found.")
         return
 
-    table = Table(title="Migration Sessions", box="ROUNDED")
+    table = Table(title="Migration Sessions", box=box.ROUNDED)
     table.add_column("Session ID", style="cyan")
     table.add_column("Stage")
     table.add_column("Status")

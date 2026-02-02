@@ -3,6 +3,7 @@
 from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -99,7 +100,7 @@ def agent_command(
                 progress.advance(task)
 
         # Display results
-        table = Table(title="Test Results", box="ROUNDED")
+        table = Table(title="Test Results", box=box.ROUNDED)
         table.add_column("Status", width=8)
         table.add_column("Query")
         table.add_column("Tools", justify="center")

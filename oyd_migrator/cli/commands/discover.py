@@ -3,6 +3,7 @@
 from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -90,7 +91,7 @@ def aoai_command(
             console.print(yaml.dump([d.model_dump() for d in deployments], default_flow_style=False))
         else:
             # Table format
-            table = Table(title="Azure OpenAI Deployments with OYD", box="ROUNDED")
+            table = Table(title="Azure OpenAI Deployments with OYD", box=box.ROUNDED)
             table.add_column("Resource", style="cyan")
             table.add_column("Deployment", style="green")
             table.add_column("Model")
@@ -216,7 +217,7 @@ def indexes_command(
             console.print(yaml.dump([i.model_dump() for i in all_indexes], default_flow_style=False))
         else:
             # Table format
-            table = Table(title="Azure AI Search Indexes", box="ROUNDED")
+            table = Table(title="Azure AI Search Indexes", box=box.ROUNDED)
             table.add_column("Service", style="cyan")
             table.add_column("Index", style="green")
             table.add_column("Fields", justify="center")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import questionary
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -210,7 +211,7 @@ def run_migration_wizard(state: MigrationState, console: Console) -> MigrationSt
 
 def _display_comparison(console: Console) -> None:
     """Display a condensed feature comparison."""
-    table = Table(title="Migration Path Comparison", box="ROUNDED", show_header=True)
+    table = Table(title="Migration Path Comparison", box=box.ROUNDED, show_header=True)
     table.add_column("Feature", style="white")
     table.add_column("Search Tool", justify="center")
     table.add_column("IQ Knowledge Base", justify="center")
