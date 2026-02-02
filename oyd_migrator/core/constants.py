@@ -16,9 +16,9 @@ class ApiVersions:
     SEARCH_MANAGEMENT = "2024-06-01-preview"  # Search service management
 
     # Azure AI Foundry / Projects
-    FOUNDRY_AGENTS = "2025-05-01"  # Agent Service
+    FOUNDRY_AGENTS = "v1"  # Agent Service (uses v1 not date-based versions)
     FOUNDRY_PROJECTS = "2025-01-01-preview"  # Project management
-    FOUNDRY_CONNECTIONS = "2025-10-01-preview"  # MCP connections
+    FOUNDRY_CONNECTIONS = "2024-07-01-preview"  # Connections API
 
     # Azure Resource Manager
     ARM = "2023-07-01"
@@ -31,6 +31,7 @@ class AzureScopes:
     MANAGEMENT = "https://management.azure.com/.default"
     COGNITIVE_SERVICES = "https://cognitiveservices.azure.com/.default"
     SEARCH = "https://search.azure.com/.default"
+    # For Foundry Agent Service, use ai.azure.com audience
     AI_FOUNDRY = "https://ai.azure.com/.default"
 
 

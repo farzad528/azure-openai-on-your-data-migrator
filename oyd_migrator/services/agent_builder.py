@@ -41,6 +41,7 @@ class AgentBuilderService:
         search_connections: list[ProjectConnection],
         query_type: str = "vector_semantic_hybrid",
         top_k: int = 5,
+        index_name: str | None = None,
     ) -> FoundryAgent:
         """
         Create an agent with Azure AI Search Tool.
@@ -52,6 +53,7 @@ class AgentBuilderService:
             search_connections: List of search connections to use
             query_type: Search query type
             top_k: Number of results to retrieve
+            index_name: Optional index name (if not specified, extracted from connection)
 
         Returns:
             Created agent
@@ -60,36 +62,28 @@ class AgentBuilderService:
             AgentCreationError: If creation fails
         """
         try:
-            # Build tool configurations
-            tools = []
-            tool_configs = []
+            # Build search index configurations for tool_resources
+            search_indexes = []
 
             for conn in search_connections:
-                # Extract index name from connection or use default
-                index_name = self._extract_index_name(conn)
+                # Use provided index name if available, otherwise extract from connection
+                actual_index_name = index_name if index_name else self._extract_index_name(conn)
 
-                tool_config = SearchToolConfig(
-                    connection_id=conn.connection_id or "",
-                    index_name=index_name,
-                    query_type=query_type,
-                    top_k=top_k,
-                )
-                tool_configs.append(tool_config)
-
-                # Build SDK-compatible tool definition
-                tools.append({
-                    "type": "azure_ai_search",
-                    "azure_ai_search": {
-                        "indexes": [
-                            {
-                                "project_connection_id": conn.connection_id,
-                                "index_name": index_name,
-                                "query_type": query_type,
-                                "top_k": top_k,
-                            }
-                        ]
-                    }
+                search_indexes.append({
+                    "index_connection_id": conn.connection_id or conn.name,
+                    "index_name": actual_index_name,
+                    "query_type": query_type,
+                    "top_k": top_k,
                 })
+
+            # Per API docs: tools contains just the type, tool_resources contains the config
+            tools = [{"type": "azure_ai_search"}]
+            
+            tool_resources = {
+                "azure_ai_search": {
+                    "indexes": search_indexes
+                }
+            }
 
             # Create agent via API
             agent_id = self._create_agent_api(
@@ -97,7 +91,19 @@ class AgentBuilderService:
                 model=model,
                 instructions=instructions,
                 tools=tools,
+                tool_resources=tool_resources,
             )
+
+            # Build tool config for FoundryAgent record
+            tool_configs = [
+                SearchToolConfig(
+                    connection_id=idx["index_connection_id"],
+                    index_name=idx["index_name"],
+                    query_type=idx["query_type"],
+                    top_k=idx["top_k"],
+                )
+                for idx in search_indexes
+            ]
 
             agent = FoundryAgent(
                 name=name,
@@ -217,6 +223,7 @@ class AgentBuilderService:
         model: str,
         instructions: str,
         tools: list[dict],
+        tool_resources: dict | None = None,
     ) -> str:
         """
         Create agent via the Foundry Agent Service API.
@@ -229,7 +236,8 @@ class AgentBuilderService:
 
         token = self.credential.get_token(AzureScopes.AI_FOUNDRY)
 
-        url = f"{self.project_endpoint}/agents?api-version={ApiVersions.FOUNDRY_AGENTS}"
+        # Foundry Agent Service uses /assistants endpoint with api-version=v1
+        url = f"{self.project_endpoint}/assistants?api-version={ApiVersions.FOUNDRY_AGENTS}"
 
         headers = {
             "Authorization": f"Bearer {token.token}",
@@ -242,6 +250,9 @@ class AgentBuilderService:
             "instructions": instructions,
             "tools": tools,
         }
+        
+        if tool_resources:
+            body["tool_resources"] = tool_resources
 
         response = httpx.post(url, headers=headers, json=body, timeout=60)
 

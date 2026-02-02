@@ -28,11 +28,32 @@ class FoundryProvisionerService:
 
     def list_projects(self) -> list[FoundryProject]:
         """
-        List existing Foundry projects.
+        List existing Foundry projects from both architectures:
+        1. ML Workspace-based projects (older)
+        2. CognitiveServices-based projects (newer Foundry portal)
 
         Returns:
             List of Foundry projects
         """
+        projects = []
+        
+        # Get projects from both sources
+        projects.extend(self._list_ml_workspace_projects())
+        projects.extend(self._list_cognitive_services_projects())
+        
+        # Deduplicate by name (prefer CognitiveServices version if both exist)
+        seen_names = set()
+        unique_projects = []
+        for p in projects:
+            if p.name not in seen_names:
+                seen_names.add(p.name)
+                unique_projects.append(p)
+        
+        logger.debug(f"Found {len(unique_projects)} Foundry project(s) total")
+        return unique_projects
+    
+    def _list_ml_workspace_projects(self) -> list[FoundryProject]:
+        """List projects from ML Workspaces (older architecture)."""
         import httpx
         from oyd_migrator.core.constants import AzureScopes
 
@@ -41,7 +62,6 @@ class FoundryProvisionerService:
         try:
             token = self.credential.get_token(AzureScopes.MANAGEMENT)
 
-            # List ML workspaces (Foundry resources are ML workspaces with specific kind)
             url = (
                 f"https://management.azure.com/subscriptions/{self.subscription_id}"
                 f"/providers/Microsoft.MachineLearningServices/workspaces"
@@ -59,17 +79,11 @@ class FoundryProvisionerService:
             data = response.json()
 
             for workspace in data.get("value", []):
-                # Filter for AI Foundry resources (kind = "Project" or "Hub")
                 kind = workspace.get("kind", "")
 
                 if kind == "Project":
                     rg = workspace["id"].split("/resourceGroups/")[1].split("/")[0]
-
-                    # Extract endpoint from properties
                     props = workspace.get("properties", {})
-
-                    # Build initial project with placeholder endpoint
-                    # We'll update this with the real endpoint from connections
                     placeholder_endpoint = self._build_project_endpoint(workspace, props)
 
                     project = FoundryProject(
@@ -79,19 +93,92 @@ class FoundryProvisionerService:
                         subscription_id=self.subscription_id,
                         location=workspace.get("location", ""),
                         endpoint=placeholder_endpoint,
-                        has_agent_service=True,  # Assume true for Projects
+                        has_agent_service=True,
                     )
-                    
-                    # Skip expensive endpoint resolution during listing
-                    # The placeholder endpoint will work for most cases
-                    # Real endpoint is fetched on-demand when needed (e.g., when selected)
-                    
                     projects.append(project)
 
-            logger.debug(f"Found {len(projects)} Foundry project(s)")
+            logger.debug(f"Found {len(projects)} ML Workspace project(s)")
 
         except Exception as e:
-            logger.warning(f"Could not list Foundry projects: {e}")
+            logger.warning(f"Could not list ML Workspace projects: {e}")
+
+        return projects
+    
+    def _list_cognitive_services_projects(self) -> list[FoundryProject]:
+        """
+        List projects from CognitiveServices accounts (newer Foundry architecture).
+        
+        These are projects created via the new Foundry portal that live under
+        Microsoft.CognitiveServices/accounts/{account}/projects/{project}
+        """
+        import httpx
+        from oyd_migrator.core.constants import AzureScopes
+
+        projects = []
+
+        try:
+            token = self.credential.get_token(AzureScopes.MANAGEMENT)
+            headers = {
+                "Authorization": f"Bearer {token.token}",
+                "Content-Type": "application/json",
+            }
+
+            # First, list all CognitiveServices accounts
+            accounts_url = (
+                f"https://management.azure.com/subscriptions/{self.subscription_id}"
+                f"/providers/Microsoft.CognitiveServices/accounts"
+                f"?api-version=2024-10-01"
+            )
+
+            response = httpx.get(accounts_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            accounts_data = response.json()
+
+            for account in accounts_data.get("value", []):
+                account_name = account["name"]
+                account_id = account["id"]
+                rg = account_id.split("/resourceGroups/")[1].split("/")[0]
+                location = account.get("location", "")
+                
+                # Check if this account has projects (it's a Foundry Account)
+                # by looking for the projects sub-resource
+                projects_url = (
+                    f"https://management.azure.com{account_id}/projects"
+                    f"?api-version=2024-10-01"
+                )
+
+                try:
+                    proj_response = httpx.get(projects_url, headers=headers, timeout=30)
+                    if proj_response.status_code == 200:
+                        proj_data = proj_response.json()
+                        
+                        for proj in proj_data.get("value", []):
+                            proj_name = proj["name"]
+                            
+                            # Build the endpoint for CognitiveServices-based projects
+                            # Format: https://{account}.services.ai.azure.com/api/projects/{project}
+                            endpoint = f"https://{account_name}.services.ai.azure.com/api/projects/{proj_name}"
+                            
+                            project = FoundryProject(
+                                name=proj_name,
+                                resource_name=account_name,
+                                resource_group=rg,
+                                subscription_id=self.subscription_id,
+                                location=location,
+                                endpoint=endpoint,
+                                has_agent_service=True,
+                            )
+                            projects.append(project)
+                            
+                except Exception as e:
+                    # Account doesn't have projects or we can't access them
+                    logger.debug(f"Could not list projects for account {account_name}: {e}")
+                    continue
+
+            logger.debug(f"Found {len(projects)} CognitiveServices project(s)")
+
+        except Exception as e:
+            logger.warning(f"Could not list CognitiveServices projects: {e}")
 
         return projects
 
