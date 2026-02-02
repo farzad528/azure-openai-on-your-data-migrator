@@ -122,10 +122,19 @@ def run_migration_wizard(state: MigrationState, console: Console) -> MigrationSt
             if not selected_project:
                 raise KeyboardInterrupt()
 
+            # Resolve the real endpoint for the selected project
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("Resolving project endpoint...", total=None)
+                resolved_endpoint = provisioner.resolve_project_endpoint(selected_project)
+
             state.foundry_config = FoundryConfig(
                 project_name=selected_project.name,
                 resource_group=selected_project.resource_group,
-                project_endpoint=selected_project.endpoint,
+                project_endpoint=resolved_endpoint,
             )
             state.migration_options.create_new_project = False
         else:

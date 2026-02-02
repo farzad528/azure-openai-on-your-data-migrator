@@ -82,10 +82,9 @@ class FoundryProvisionerService:
                         has_agent_service=True,  # Assume true for Projects
                     )
                     
-                    # Try to get the real AI Services endpoint from connections
-                    real_endpoint = self._get_ai_services_endpoint(project, token.token)
-                    if real_endpoint:
-                        project.endpoint = real_endpoint
+                    # Skip expensive endpoint resolution during listing
+                    # The placeholder endpoint will work for most cases
+                    # Real endpoint is fetched on-demand when needed (e.g., when selected)
                     
                     projects.append(project)
 
@@ -95,6 +94,31 @@ class FoundryProvisionerService:
             logger.warning(f"Could not list Foundry projects: {e}")
 
         return projects
+
+    def resolve_project_endpoint(self, project: 'FoundryProject') -> str:
+        """
+        Resolve the real AI Services endpoint for a selected project.
+        
+        This makes an additional API call to get connection details,
+        so should only be called for projects the user has selected.
+        
+        Args:
+            project: The Foundry project to resolve endpoint for
+            
+        Returns:
+            The resolved endpoint (may be same as input if resolution fails)
+        """
+        from oyd_migrator.core.constants import AzureScopes
+        
+        try:
+            token = self.credential.get_token(AzureScopes.MANAGEMENT)
+            real_endpoint = self._get_ai_services_endpoint(project, token.token)
+            if real_endpoint:
+                return real_endpoint
+        except Exception as e:
+            logger.debug(f"Could not resolve endpoint for {project.name}: {e}")
+        
+        return project.endpoint
 
     def list_foundry_accounts(self) -> list[FoundryProject]:
         """
