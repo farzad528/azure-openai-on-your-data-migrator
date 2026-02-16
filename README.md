@@ -7,7 +7,7 @@ CLI tool for migrating [Azure OpenAI "On Your Data" (OYD)](https://learn.microso
 Azure OpenAI OYD is being deprecated as GPT-4 family models retire (2025). The feature does not support GPT-5 models and is no longer under active development. This tool provides two migration paths:
 
 - **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search?tabs=indexing%2Cquickstarts) Tool** — Direct index connection for simple RAG
-- **[Foundry IQ](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect) Knowledge Base** — The knowledge layer built on Azure AI Search agentic retrieval APIs (`/knowledgebases`), for advanced reasoning
+- **[Foundry IQ](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/foundry-iq-connect?view=foundry&tabs=foundry%2Cpython) Knowledge Base** — The knowledge layer built on Azure AI Search agentic retrieval APIs (`/knowledgebases`), for advanced reasoning
 
 ## Prerequisites
 
@@ -98,7 +98,7 @@ oyd-migrator discover all -g <your-resource-group>
 - [Azure OpenAI On Your Data](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/use-your-data?view=foundry-classic&WT.mc_id=m365-94501-dwahlin&tabs=ai-search%2Ccopilot#what-is-azure-openai-on-your-data)
 - [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search?tabs=indexing%2Cquickstarts)
 - [Microsoft Foundry Agent Service](https://learn.microsoft.com/azure/ai-foundry/agents)
-- [Foundry IQ Knowledge Base](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect)
+- [Foundry IQ Knowledge Base](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/foundry-iq-connect?view=foundry&tabs=foundry%2Cpython)
 
 ## License
 

@@ -194,7 +194,7 @@ Both approaches support VNet integration, but with requirements:
 
 - [Azure OpenAI On Your Data Documentation](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/use-your-data)
 - [Foundry Agent Service - Azure AI Search Tool](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/tools/ai-search)
-- [Foundry IQ Knowledge Base](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect)
+- [Foundry IQ Knowledge Base](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/foundry-iq-connect?view=foundry&tabs=foundry%2Cpython)
 - [Model Retirements](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirements)
 
 ---
