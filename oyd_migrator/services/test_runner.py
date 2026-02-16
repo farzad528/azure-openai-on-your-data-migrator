@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from azure.core.credentials import TokenCredential
 
@@ -49,7 +49,7 @@ class AgentTestRunner:
         result = TestResult(
             agent_name=agent_name,
             query=query,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         start_time = time.time()

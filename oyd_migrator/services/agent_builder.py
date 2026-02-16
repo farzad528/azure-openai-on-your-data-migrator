@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from azure.core.credentials import TokenCredential
 
@@ -114,7 +114,7 @@ class AgentBuilderService:
                 instructions=instructions,
                 migration_path=MigrationPath.SEARCH_TOOL,
                 tools=tool_configs,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
 
             logger.info(f"Created search tool agent: {name}")
@@ -204,7 +204,7 @@ class AgentBuilderService:
                 instructions=instructions,
                 migration_path=MigrationPath.KNOWLEDGE_BASE,
                 tools=tool_configs,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
 
             logger.info(f"Created knowledge base agent: {name}")
@@ -271,7 +271,12 @@ class AgentBuilderService:
         return connection.name.replace("-connection", "-index")
 
     def _get_project_name(self) -> str:
-        """Extract project name from endpoint."""
+        """Extract project name from endpoint.
+
+        Handles both endpoint formats:
+        - https://{account}.services.ai.azure.com/api/projects/{project}
+        - https://{resource}.cognitiveservices.azure.com/
+        """
         import urllib.parse
 
         parsed = urllib.parse.urlparse(self.project_endpoint)
@@ -281,6 +286,12 @@ class AgentBuilderService:
             idx = path_parts.index("projects")
             if idx + 1 < len(path_parts):
                 return path_parts[idx + 1]
+
+        # Fallback: extract resource name from hostname
+        # e.g., "myresource.cognitiveservices.azure.com" -> "myresource"
+        host = parsed.netloc
+        if host:
+            return host.split(".")[0]
 
         return "unknown"
 

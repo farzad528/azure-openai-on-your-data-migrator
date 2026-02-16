@@ -50,7 +50,7 @@ class ProvisioningError(MigrationError):
         super().__init__(message, details)
 
 
-class ConnectionError(MigrationError):
+class ProjectConnectionError(MigrationError):
     """Failed to create or validate project connections."""
 
     def __init__(

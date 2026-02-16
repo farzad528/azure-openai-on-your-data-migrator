@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -164,7 +164,7 @@ class AgentThread(BaseModel):
 
     thread_id: str = Field(description="Thread ID")
     agent_id: str = Field(description="Associated agent ID")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentRun(BaseModel):
@@ -174,7 +174,7 @@ class AgentRun(BaseModel):
     thread_id: str = Field(description="Thread ID")
     agent_id: str = Field(description="Agent ID")
     status: str = Field(description="Run status (queued, in_progress, completed, etc.)")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = Field(default=None)
 
     # Results

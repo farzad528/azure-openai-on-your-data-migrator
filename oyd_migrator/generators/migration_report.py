@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Literal
 
@@ -46,7 +46,7 @@ def _generate_markdown_report(state: MigrationState) -> str:
 
     report = f"""# OYD to Foundry Migration Report
 
-**Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC
+**Generated:** {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")} UTC
 **Session ID:** {state.session_id}
 **Status:** {"Completed" if state.completed else "In Progress"}
 
@@ -220,7 +220,7 @@ def _generate_json_report(state: MigrationState) -> str:
     report_data = {
         "metadata": {
             "session_id": state.session_id,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "completed": state.completed,
             "generator": "oyd-foundry-migrator",
             "version": "1.0.0",

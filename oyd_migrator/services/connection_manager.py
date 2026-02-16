@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from azure.core.credentials import TokenCredential
 
 from oyd_migrator.core.constants import ApiVersions
-from oyd_migrator.core.exceptions import ConnectionError
+from oyd_migrator.core.exceptions import ProjectConnectionError
 from oyd_migrator.core.logging import get_logger
 from oyd_migrator.models.foundry import ProjectConnection
 
@@ -84,7 +84,7 @@ class ConnectionManagerService:
             Created connection
 
         Raises:
-            ConnectionError: If creation fails
+            ProjectConnectionError: If creation fails
         """
         import httpx
         from oyd_migrator.core.constants import AzureScopes
@@ -124,7 +124,7 @@ class ConnectionManagerService:
             response = httpx.put(url, headers=headers, json=body, timeout=60)
 
             if response.status_code not in [200, 201]:
-                raise ConnectionError(
+                raise ProjectConnectionError(
                     f"Failed to create connection: {response.text}",
                     details={"status_code": response.status_code},
                 )
@@ -143,11 +143,11 @@ class ConnectionManagerService:
             logger.info(f"Created search connection: {name}")
             return connection
 
-        except ConnectionError:
+        except ProjectConnectionError:
             raise
         except Exception as e:
             logger.error(f"Failed to create connection: {e}")
-            raise ConnectionError(
+            raise ProjectConnectionError(
                 f"Failed to create search connection: {e}",
                 details={"name": name, "endpoint": endpoint},
             )
@@ -170,7 +170,7 @@ class ConnectionManagerService:
             Created connection
 
         Raises:
-            ConnectionError: If creation fails
+            ProjectConnectionError: If creation fails
         """
         import httpx
         from oyd_migrator.core.constants import AzureScopes
@@ -202,7 +202,7 @@ class ConnectionManagerService:
             response = httpx.put(url, headers=headers, json=body, timeout=60)
 
             if response.status_code not in [200, 201]:
-                raise ConnectionError(
+                raise ProjectConnectionError(
                     f"Failed to create MCP connection: {response.text}",
                     details={"status_code": response.status_code},
                 )
@@ -221,11 +221,11 @@ class ConnectionManagerService:
             logger.info(f"Created MCP connection: {name}")
             return connection
 
-        except ConnectionError:
+        except ProjectConnectionError:
             raise
         except Exception as e:
             logger.error(f"Failed to create MCP connection: {e}")
-            raise ConnectionError(
+            raise ProjectConnectionError(
                 f"Failed to create MCP connection: {e}",
                 details={"name": name, "mcp_endpoint": mcp_endpoint},
             )

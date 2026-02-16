@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -43,7 +43,7 @@ class MigrationPlan(BaseModel):
     """A complete migration plan."""
 
     plan_id: str = Field(description="Unique plan identifier")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Migration configuration
     migration_path: MigrationPath = Field(description="Target architecture")
@@ -95,7 +95,7 @@ class TestResult(BaseModel):
 
     agent_name: str = Field(description="Agent that was tested")
     query: str = Field(description="Test query")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Response
     success: bool = Field(default=False)
@@ -158,7 +158,7 @@ class ComparisonReport(BaseModel):
     """Full comparison report between OYD and Foundry."""
 
     report_id: str = Field(description="Report identifier")
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Context
     source_deployment: str = Field(description="OYD deployment name")
@@ -183,7 +183,7 @@ class MigrationResult(BaseModel):
     """Final result of a migration operation."""
 
     result_id: str = Field(description="Result identifier")
-    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     duration_seconds: float = Field(default=0)
 
     # Migration details
@@ -217,4 +217,4 @@ class MigrationResult(BaseModel):
     @property
     def all_tests_passed(self) -> bool:
         """Check if all tests passed."""
-        return all(t.success for t in self.test_results)
+        return len(self.test_results) > 0 and all(t.success for t in self.test_results)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import questionary
 from rich.console import Console
@@ -37,7 +37,7 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
     from oyd_migrator.services.agent_builder import AgentBuilderService
     from oyd_migrator.services.test_runner import AgentTestRunner
 
-    start_time = datetime.utcnow()
+    start_time = datetime.now(timezone.utc)
 
     # Display migration plan
     console.print("[bold]Migration Plan Review:[/bold]\n")
@@ -194,7 +194,7 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
             console.print(f"{Display.SUCCESS} Generated {len(agents_created)} sample(s)\n")
 
         # Calculate duration
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         result.duration_seconds = (end_time - start_time).total_seconds()
         result.success = True
 

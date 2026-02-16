@@ -285,9 +285,13 @@ class SearchInventoryService:
             supports_vector=index.has_vector_search(),
         )
 
-        # Determine hybrid support
-        analysis.supports_hybrid = (
+        # Determine hybrid support (requires vector + text for basic hybrid,
+        # plus semantic for full vector_semantic_hybrid)
+        supports_basic_hybrid = (
             analysis.supports_vector and analysis.text_fields > 0
+        )
+        analysis.supports_hybrid = (
+            supports_basic_hybrid and analysis.supports_semantic
         )
 
         # Check compatibility
@@ -304,12 +308,12 @@ class SearchInventoryService:
             )
 
         # Determine recommended query type
-        if analysis.supports_hybrid and analysis.supports_semantic:
+        if analysis.supports_hybrid:
             analysis.recommended_query_type = "vector_semantic_hybrid"
             analysis.recommendations.append(
                 "Index supports hybrid + semantic search (recommended)"
             )
-        elif analysis.supports_hybrid:
+        elif supports_basic_hybrid:
             analysis.recommended_query_type = "vector_simple_hybrid"
             analysis.recommendations.append(
                 "Index supports hybrid search. Consider adding semantic configuration."

@@ -6,7 +6,7 @@ from oyd_migrator.core.exceptions import (
     AuthenticationError,
     DiscoveryError,
     ProvisioningError,
-    ConnectionError,
+    ProjectConnectionError,
     AgentCreationError,
     ValidationError,
 )
@@ -18,7 +18,7 @@ __all__ = [
     "AuthenticationError",
     "DiscoveryError",
     "ProvisioningError",
-    "ConnectionError",
+    "ProjectConnectionError",
     "AgentCreationError",
     "ValidationError",
 ]
