@@ -4,37 +4,33 @@ CLI tool for migrating Azure OpenAI "On Your Data" (OYD) to Azure AI Foundry Age
 
 ## Why Migrate?
 
-Azure OpenAI OYD is being deprecated as GPT-4 family models retire (2025). The feature does not support GPT-5 models and is no longer under active development. This tool helps you migrate to Foundry Agent Service with two options:
+Azure OpenAI OYD is being deprecated as GPT-4 family models retire (2025). The feature does not support GPT-5 models and is no longer under active development. This tool provides two migration paths:
 
-- **Azure AI Search Tool** - Direct index connection for simple RAG
-- **Foundry IQ Knowledge Base** - MCP-based for advanced reasoning
+- **Azure AI Search Tool** — Direct index connection for simple RAG
+- **Foundry IQ Knowledge Base** — MCP-based for advanced reasoning
 
-## Before You Begin
-
-### Prerequisites
+## Prerequisites
 
 | Requirement | Description |
 |-------------|-------------|
-| Python 3.10+ | Required for running the tool |
+| Python 3.10+ | Required runtime |
 | Azure CLI | Run `az login` to authenticate |
 | Azure Subscription | With OYD already configured |
 
 ### Required Information
 
-Have the following information ready before starting the migration:
-
-| Resource | How to Find It |
-|----------|---------------|
+| Resource | Location |
+|----------|----------|
 | **Subscription ID** | Azure Portal → Subscriptions |
-| **Azure OpenAI Resource Name** | Azure Portal → Azure OpenAI → Your resource name |
-| **Resource Group** | Azure Portal → Azure OpenAI → Overview → Resource group |
+| **Azure OpenAI Resource Name** | Azure Portal → Azure OpenAI |
+| **Resource Group** | Azure Portal → Azure OpenAI → Overview |
 | **Deployment Name** | Azure OpenAI Studio → Deployments |
-| **Azure AI Search Service Name** | Azure Portal → Azure AI Search → Your service name |
+| **Azure AI Search Service Name** | Azure Portal → Azure AI Search |
 | **Search Index Name** | Azure AI Search → Indexes |
 
-### Required RBAC Permissions
+### Required RBAC Roles
 
-If using **System Assigned Managed Identity** (recommended), ensure these role assignments are configured:
+For **System Assigned Managed Identity** (recommended):
 
 | Role | Assignee | Resource |
 |------|----------|----------|
@@ -45,73 +41,59 @@ If using **System Assigned Managed Identity** (recommended), ensure these role a
 | Storage Blob Data Reader | Azure AI Search | Storage Account |
 | Cognitive Services OpenAI User | Your identity/Web app | Azure OpenAI |
 
-See [RBAC Setup Guide](docs/RBAC.md) for detailed instructions.
+See [RBAC Setup Guide](docs/RBAC.md) for details.
 
 ## Quick Start
 
 ```bash
-# Install
 pip install -e .
-
-# Run interactive wizard
+az login
 oyd-migrator wizard
 ```
 
 ## Commands
 
 ```bash
-# Discovery (use filters for faster scanning)
-oyd-migrator discover all -g <resource-group>   # Filter by resource group (faster)
-oyd-migrator discover aoai -g <resource-group>  # Discover AOAI resources only
-oyd-migrator discover indexes --service <name>  # Discover indexes on specific service
+# Discovery
+oyd-migrator discover all -g <resource-group>
+oyd-migrator discover aoai -g <resource-group>
+oyd-migrator discover indexes --service <name>
 
 # Migration
-oyd-migrator wizard                              # Interactive migration wizard
-oyd-migrator migrate interactive                 # Start migration wizard
-oyd-migrator compare                             # View feature comparison matrix
+oyd-migrator wizard
+oyd-migrator migrate interactive
+oyd-migrator compare
 
 # Validation
 oyd-migrator validate agent <name> --project-endpoint <url>
-oyd-migrator validate roles -g <resource-group> # Check RBAC permissions
+oyd-migrator validate roles -g <resource-group>
 
 # Code generation
 oyd-migrator generate python <name> --project-endpoint <url>
 ```
 
-## Authentication
-
-```bash
-az login
-oyd-migrator wizard
-```
-
-> **💡 Tip for AI-Assisted Migration:** If you're using a coding agent (like GitHub Copilot) to help with migration, ensure it has access to your Azure CLI session. This allows the agent to leverage Azure resources directly, making the migration process more efficient and accurate.
-
-## Common Issues
+## Troubleshooting
 
 ### 403 Error: Azure Search Access Denied
 
-This usually means RBAC roles are not configured correctly. Run:
+Verify RBAC configuration:
 ```bash
 oyd-migrator validate roles -g <your-resource-group>
 ```
 
-See [RBAC Setup Guide](docs/RBAC.md) for configuration instructions.
+### Slow Discovery
 
-### Discovery Takes Too Long
-
-Use resource group filtering to speed up discovery:
+Filter by resource group:
 ```bash
 oyd-migrator discover all -g <your-resource-group>
 ```
-
-Or use the wizard's "Filter by resource group" option.
 
 ## Resources
 
 - [Feature Comparison](FEATURE_COMPARISON.md)
 - [Migration Guide](docs/MIGRATION_GUIDE.md)
 - [RBAC Setup Guide](docs/RBAC.md)
+- [Azure SDK Skills Reference](SKILLS.md)
 - [Coding Agent Guide](AGENTS.md)
 - [Foundry Agent Service Docs](https://learn.microsoft.com/azure/ai-foundry/agents)
 - [Foundry IQ Knowledge Base](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect)
