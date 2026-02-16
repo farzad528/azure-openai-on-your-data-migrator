@@ -1,13 +1,13 @@
 # OYD Migrator
 
-CLI tool for migrating Azure OpenAI "On Your Data" (OYD) to Azure AI Foundry Agent Service.
+CLI tool for migrating [Azure OpenAI "On Your Data" (OYD)](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/use-your-data?view=foundry-classic&WT.mc_id=m365-94501-dwahlin&tabs=ai-search%2Ccopilot#what-is-azure-openai-on-your-data) to [Microsoft Foundry Agent Service](https://learn.microsoft.com/azure/ai-foundry/agents) (fka. Azure AI Agent Service).
 
 ## Why Migrate?
 
 Azure OpenAI OYD is being deprecated as GPT-4 family models retire (2025). The feature does not support GPT-5 models and is no longer under active development. This tool provides two migration paths:
 
-- **Azure AI Search Tool** — Direct index connection for simple RAG
-- **Foundry IQ Knowledge Base** — MCP-based for advanced reasoning
+- **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search?tabs=indexing%2Cquickstarts) Tool** — Direct index connection for simple RAG
+- **[Foundry IQ](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect) Knowledge Base** — The knowledge layer built on Azure AI Search agentic retrieval APIs (`/knowledgebases`), for advanced reasoning
 
 ## Prerequisites
 
@@ -95,7 +95,9 @@ oyd-migrator discover all -g <your-resource-group>
 - [RBAC Setup Guide](docs/RBAC.md)
 - [Azure SDK Skills Reference](SKILLS.md)
 - [Coding Agent Guide](AGENTS.md)
-- [Foundry Agent Service Docs](https://learn.microsoft.com/azure/ai-foundry/agents)
+- [Azure OpenAI On Your Data](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/use-your-data?view=foundry-classic&WT.mc_id=m365-94501-dwahlin&tabs=ai-search%2Ccopilot#what-is-azure-openai-on-your-data)
+- [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search?tabs=indexing%2Cquickstarts)
+- [Microsoft Foundry Agent Service](https://learn.microsoft.com/azure/ai-foundry/agents)
 - [Foundry IQ Knowledge Base](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/foundry-iq-connect)
 
 ## License
