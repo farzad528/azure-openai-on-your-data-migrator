@@ -40,6 +40,7 @@ class SearchConfig(BaseModel):
     service_name: str = Field(description="Search service name")
     resource_group: str = Field(description="Resource group containing the service")
     endpoint: str = Field(description="Search service endpoint URL")
+    index_name: str | None = Field(default=None, description="Search index name to use")
     api_key: str | None = Field(default=None, description="Admin or query API key")
     use_managed_identity: bool = Field(
         default=False, description="Use managed identity instead of API key"

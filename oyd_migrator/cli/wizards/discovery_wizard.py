@@ -155,23 +155,31 @@ def run_discovery_wizard(state: MigrationState, console: Console) -> MigrationSt
             subscription_id=state.azure_config.subscription_id,
         )
 
-        # Get unique search endpoints from OYD configs
-        search_endpoints = set()
+        # Get unique search endpoints and index names from OYD configs
+        # Key: endpoint -> list of index names from that service
+        search_source_map: dict[str, list[str]] = {}
         for deployment in selected_deployments:
             if deployment.oyd_config:
                 for source in deployment.oyd_config.get_azure_search_sources():
-                    search_endpoints.add(source.endpoint)
+                    ep = source.endpoint
+                    if ep not in search_source_map:
+                        search_source_map[ep] = []
+                    if source.index_name and source.index_name not in search_source_map[ep]:
+                        search_source_map[ep].append(source.index_name)
 
-        # Fetch index details for each endpoint
+        # Fetch service details and build configs including index names
         search_configs = []
-        for endpoint in search_endpoints:
+        for endpoint, index_names in search_source_map.items():
             try:
                 service = inventory_service.get_service_by_endpoint(endpoint)
                 if service:
+                    # Use the first index name from OYD config for this service
+                    idx_name = index_names[0] if index_names else None
                     search_configs.append(SearchConfig(
                         service_name=service.name,
                         resource_group=service.resource_group,
                         endpoint=endpoint,
+                        index_name=idx_name,
                         use_managed_identity=service.requires_managed_identity,
                     ))
             except Exception as e:
@@ -186,10 +194,22 @@ def run_discovery_wizard(state: MigrationState, console: Console) -> MigrationSt
         console.print(f"{Display.SUCCESS} Found {len(search_configs)} connected search service(s):\n")
         for config in search_configs:
             auth_type = "Managed Identity" if config.use_managed_identity else "API Key"
-            console.print(f"  • {config.service_name} ({auth_type})")
+            idx_info = f", index: {config.index_name}" if config.index_name else ""
+            console.print(f"  • {config.service_name} ({auth_type}{idx_info})")
         console.print()
     else:
         console.print(f"{Display.WARNING} No search services found in OYD configurations.\n")
+
+        # Ask if they want to manually specify search service
+        manual_search = questionary.confirm(
+            "Would you like to manually specify a search service?",
+            default=True,
+        ).ask()
+
+        if manual_search:
+            search_configs = _manual_search_entry(console)
+            state.search_configs = search_configs
+            console.print(f"\n{Display.SUCCESS} Added {len(search_configs)} search service(s).\n")
 
     # Summary
     console.print("[bold]Discovery Summary:[/bold]\n")
@@ -275,3 +295,43 @@ def _manual_aoai_entry(console: Console) -> list[OYDDeployment]:
     )
 
     return [deployment]
+
+
+def _manual_search_entry(console: Console) -> list[SearchConfig]:
+    """Manually enter Azure AI Search service details."""
+    console.print("\nEnter the Azure AI Search service details:\n")
+
+    service_name = questionary.text(
+        "Search service name:",
+        validate=lambda x: len(x) > 0 or "Required",
+    ).ask()
+
+    search_rg = questionary.text(
+        "Search service resource group:",
+        validate=lambda x: len(x) > 0 or "Required",
+    ).ask()
+
+    index_name = questionary.text(
+        "Search index name:",
+        validate=lambda x: len(x) > 0 or "Required",
+    ).ask()
+
+    if not all([service_name, search_rg, index_name]):
+        raise KeyboardInterrupt()
+
+    endpoint = f"https://{service_name}.search.windows.net"
+
+    use_mi = questionary.confirm(
+        "Use managed identity for authentication? (recommended)",
+        default=True,
+    ).ask()
+
+    config = SearchConfig(
+        service_name=service_name,
+        resource_group=search_rg,
+        endpoint=endpoint,
+        index_name=index_name,
+        use_managed_identity=use_mi if use_mi else False,
+    )
+
+    return [config]
