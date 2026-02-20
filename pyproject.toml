@@ -49,7 +49,7 @@ dependencies = [
     # Azure SDKs - Management
     "azure-mgmt-search>=9.0.0",
     "azure-mgmt-cognitiveservices>=13.5.0",
-    "azure-mgmt-resource>=23.0.0",
+    "azure-mgmt-resource>=23.0.0,<25.0.0",
     "azure-mgmt-authorization>=4.0.0",
 
     # Azure ML SDK (for connections)

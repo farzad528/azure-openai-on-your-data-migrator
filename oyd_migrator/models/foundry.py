@@ -87,7 +87,7 @@ class ProjectConnection(BaseModel):
 class SearchToolConfig(BaseModel):
     """Configuration for Azure AI Search Agent Tool."""
 
-    connection_id: str = Field(description="Project connection resource ID")
+    connection_id: str | None = Field(default=None, description="Project connection resource ID")
     index_name: str = Field(description="Search index name")
     query_type: str = Field(
         default="vector_semantic_hybrid",

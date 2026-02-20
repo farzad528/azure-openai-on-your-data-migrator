@@ -96,6 +96,8 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
         connection_manager = ConnectionManagerService(
             credential=credential,
             project_endpoint=state.foundry_config.project_endpoint,
+            subscription_id=state.azure_config.subscription_id,
+            resource_group=state.foundry_config.resource_group,
         )
 
         connections_created = []
@@ -110,7 +112,13 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
             state.created_connections.append(connection.name)
 
         result.connections_created = connections_created
-        console.print(f"{Display.SUCCESS} Created {len(connections_created)} connection(s)\n")
+        console.print(f"{Display.SUCCESS} Created {len(connections_created)} connection(s)")
+
+        # Wait for connection propagation from ARM to data-plane
+        import time
+        console.print(f"{Display.INFO} Waiting for connection propagation (15s)...")
+        time.sleep(15)
+        console.print()
 
         # Step 3: Create agents
         console.print(f"{Display.IN_PROGRESS} Creating agents...")
@@ -130,11 +138,17 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
 
             # Create agent based on migration path
             if state.migration_options.migration_path == MigrationPath.SEARCH_TOOL:
+                # Get index name from search configs if available
+                idx_name = None
+                if state.search_configs:
+                    idx_name = state.search_configs[0].index_name
+
                 agent = agent_builder.create_search_tool_agent(
                     name=agent_name,
                     model=state.foundry_config.model_deployment,
                     instructions=instructions,
                     search_connections=connections_created,
+                    index_name=idx_name,
                 )
             else:
                 agent = agent_builder.create_knowledge_base_agent(
@@ -167,8 +181,11 @@ def run_review_wizard(state: MigrationState, console: Console) -> MigrationResul
                     "Can you provide a brief summary of the main topics?",
                 ]
 
+                # Use agent_id if available (the API needs the ID, not the name)
+                agent_ref = agent.agent_id or agent.name
+
                 for query in test_queries:
-                    test_result = test_runner.test_agent(agent.name, query)
+                    test_result = test_runner.test_agent(agent_ref, query)
                     test_results.append(test_result)
                     state.test_results[f"{agent.name}:{query[:20]}"] = test_result.success
 
