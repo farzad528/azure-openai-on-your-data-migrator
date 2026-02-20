@@ -256,6 +256,20 @@ class AgentBuilderService:
 
         response = httpx.post(url, headers=headers, json=body, timeout=60)
 
+        # Retry on 404 — connection propagation from ARM to data-plane can take time
+        if response.status_code == 404:
+            import time
+            for attempt in range(3):
+                delay = 10 * (attempt + 1)  # 10s, 20s, 30s
+                logger.debug(f"Got 404, retrying in {delay}s (attempt {attempt + 1}/3, connection propagation)...")
+                time.sleep(delay)
+                # Re-acquire token in case it was close to expiry
+                token = self.credential.get_token(AzureScopes.AI_FOUNDRY)
+                headers["Authorization"] = f"Bearer {token.token}"
+                response = httpx.post(url, headers=headers, json=body, timeout=60)
+                if response.status_code in [200, 201]:
+                    break
+
         if response.status_code not in [200, 201]:
             raise AgentCreationError(
                 f"Agent API returned {response.status_code}: {response.text}"
