@@ -93,7 +93,7 @@ oyd-migrator discover all -g <your-resource-group>
 - [Feature Comparison](FEATURE_COMPARISON.md)
 - [Migration Guide](docs/MIGRATION_GUIDE.md)
 - [RBAC Setup Guide](docs/RBAC.md)
-- [Azure SDK Skills Reference](SKILLS.md)
+- [Azure SDK Skills Reference](.agents/skills/oyd-to-foundry-migration/SKILL.md)
 - [Coding Agent Guide](AGENTS.md)
 - [Azure OpenAI On Your Data](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/use-your-data?view=foundry-classic&WT.mc_id=m365-94501-dwahlin&tabs=ai-search%2Ccopilot#what-is-azure-openai-on-your-data)
 - [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search?tabs=indexing%2Cquickstarts)
