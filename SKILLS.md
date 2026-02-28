@@ -1,3 +1,8 @@
+---
+name: oyd-to-foundry-migration
+description: "**WORKFLOW SKILL** — Migrate Azure OpenAI On Your Data (OYD) configurations to Azure AI Foundry Agent Service. WHEN: \"migrate OYD to Foundry\", \"create Foundry agent from OYD\", \"OYD migration\", \"convert OYD to agent\", \"search tool agent\", \"knowledge base migration\". INVOKES: Azure CLI, REST APIs (Foundry Agent Service, Azure AI Search), run_migration.py script. FOR SINGLE OPERATIONS: use Azure AI Foundry portal directly for manual agent creation."
+---
+
 # Skills Reference
 
 This document provides guidance for both **coding agents** (GitHub Copilot, Claude Code, etc.)
