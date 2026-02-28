@@ -80,10 +80,84 @@ az cognitiveservices account deployment show --name <your-foundry-resource> --re
 | `Azure AI User` | Foundry project (for agent CRUD) |
 | `Search Index Data Reader` | Search service (for agent to query index) |
 | `Search Service Contributor` | Search service (for index metadata) |
+| `Contributor` | Foundry project (only if creating connections or projects via ARM) |
 
 > **Note:** The AI Services managed identity (not your user identity) needs
 > `Search Index Data Reader` and `Search Service Contributor` on the search resource.
 > RBAC propagation can take 5–10 minutes after assignment.
+
+### Step 0: Discover Existing OYD Configuration
+
+Before migrating, extract the OYD configuration from the source deployment.
+OYD is configured **inline at the API call level** (not as a persistent deployment property),
+so it cannot be auto-detected from the Azure management API alone.
+
+**Strategy 1 — Extract from application code (recommended):**
+Search the user's codebase for the `data_sources` payload sent to the AOAI chat completions API:
+
+```bash
+# Look for OYD configuration in the codebase
+grep -r "data_sources" --include="*.py" --include="*.js" --include="*.ts" --include="*.json" --include="*.yaml" .
+grep -r "azure_search\|AzureSearchChatExtensionConfiguration" --include="*.py" --include="*.cs" .
+```
+
+The configuration typically looks like:
+```json
+{
+  "data_sources": [{
+    "type": "azure_search",
+    "parameters": {
+      "endpoint": "https://my-search.search.windows.net",
+      "index_name": "my-index",
+      "query_type": "semantic",
+      "semantic_configuration": "default",
+      "fields_mapping": {
+        "content_fields": ["content"],
+        "title_field": "title",
+        "url_field": "url"
+      },
+      "role_information": "You are an HR assistant...",
+      "strictness": 3,
+      "top_n_documents": 5,
+      "in_scope": true
+    }
+  }]
+}
+```
+
+Extract these values and map them to environment variables:
+
+| OYD `parameters` Field | Maps To | Notes |
+|------------------------|---------|-------|
+| `endpoint` | `SEARCH_CONNECTION_NAME` | DNS prefix (e.g., `my-search` from `https://my-search.search.windows.net`) |
+| `index_name` | `SEARCH_INDEX_NAME` | Direct mapping |
+| `query_type` | `SEARCH_QUERY_TYPE` | `simple` \| `semantic` \| `vector` \| `vector_simple_hybrid` \| `vector_semantic_hybrid` |
+| `role_information` | `AGENT_INSTRUCTIONS` | Direct mapping — use the exact text |
+| `strictness` | N/A (Search Tool) | Not configurable in agent API; KB path: `(strictness - 1) * 1.0` |
+| `top_n_documents` | Hardcoded `top_k: 5` in script | Editable in `run_migration.py` |
+| `fields_mapping` | N/A | Agent API does not accept field mappings — search index schema determines field behavior |
+| `in_scope` | Append to `AGENT_INSTRUCTIONS` | Add: "Only answer from the search results. If the information is not found, say so." |
+| `semantic_configuration` | N/A (Search Tool) | Inherited from search index; KB path: automatic |
+
+**Strategy 2 — Probe via Azure CLI (best-effort):**
+
+```bash
+# List all OpenAI resources in a resource group
+az cognitiveservices account list -g <rg> --query "[?kind=='OpenAI'].{name:name, endpoint:properties.endpoint}" -o table
+
+# List deployments on an AOAI resource
+az cognitiveservices account deployment list --name <aoai-resource> -g <rg> --query "[].{name:name, model:properties.model.name, version:properties.model.version}" -o table
+
+# Test an OYD query to verify configuration (requires the data_sources payload)
+TOKEN=$(az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv)
+curl -X POST "https://<aoai-resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-10-21" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"test"}],"data_sources":[{"type":"azure_search","parameters":{"endpoint":"https://<search>.search.windows.net","index_name":"<index>","authentication":{"type":"system_assigned_managed_identity"},"query_type":"semantic"}}]}'
+```
+
+> **Key insight:** The interactive wizard's `AOAIDiscoveryService` uses the same best-effort
+> approach and frequently falls back to asking the user for manual input. A coding agent
+> should prioritize Strategy 1 (searching the codebase) for reliable config extraction.
 
 ### How to Create the Search Connection
 
@@ -97,14 +171,63 @@ You have two options:
 4. Set auth to **API Key** or **Microsoft Entra ID**
 5. Note the connection name (use this as `SEARCH_CONNECTION_NAME`)
 
-**Option B — ConnectionManagerService (partially implemented):**
-The `ConnectionManagerService` in `oyd_migrator/services/connection_manager.py` is intended
-to create connections via the ARM management API. However, the current implementation's
-`_build_connection_url()` falls back to the data-plane endpoint (a known limitation —
-see code comments). It uses `https://management.azure.com/.default` scope for listing.
-For reliable automated connection creation, use the portal (Option A) or call the ARM
-REST API directly with the full resource path:
-`PUT https://management.azure.com/{project-resource-id}/connections/{name}?api-version=2024-07-01-preview`.
+**Option B — ARM REST API (fully automated):**
+
+Create a connection via the ARM management API. This requires `Contributor` role on the Foundry project.
+
+**Choose an auth type:**
+- **`ApiKey`** — Simpler setup; search service API key is stored in the connection. Works with any search service auth mode.
+- **`AAD`** — Uses Foundry managed identity; requires the search service to allow RBAC access (`aadOrApiKey` or `rbac`) and the managed identity to have `Search Index Data Reader` + `Search Service Contributor` roles on the search resource.
+
+```bash
+# Set variables
+SUBSCRIPTION_ID="<subscription-id>"
+RESOURCE_GROUP="<resource-group>"
+FOUNDRY_RESOURCE="<foundry-resource-name>"
+PROJECT_NAME="<project-name>"
+CONNECTION_NAME="<search-service-name>"  # Must match search DNS prefix
+SEARCH_ENDPOINT="https://${CONNECTION_NAME}.search.windows.net"
+AUTH_TYPE="ApiKey"  # or "AAD"
+
+# Get ARM token
+ARM_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+
+# For ApiKey auth, get the search admin key:
+SEARCH_KEY=$(az search admin-key show --service-name ${CONNECTION_NAME} \
+  --resource-group ${RESOURCE_GROUP} --query primaryKey -o tsv)
+
+# Create search connection via ARM PUT
+# ApiKey variant (includes credentials block):
+curl -X PUT \
+  "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_RESOURCE}/projects/${PROJECT_NAME}/connections/${CONNECTION_NAME}?api-version=2025-04-01-preview" \
+  -H "Authorization: Bearer ${ARM_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"properties\": {
+      \"category\": \"CognitiveSearch\",
+      \"target\": \"${SEARCH_ENDPOINT}\",
+      \"authType\": \"${AUTH_TYPE}\",
+      \"isSharedToAll\": true,
+      \"credentials\": { \"key\": \"${SEARCH_KEY}\" }
+    }
+  }"
+# For AAD auth, omit the "credentials" block entirely.
+```
+
+**PowerShell equivalent (ApiKey):**
+```powershell
+$armToken = az account get-access-token --resource https://management.azure.com --query accessToken -o tsv
+$searchKey = az search admin-key show --service-name $connectionName --resource-group $rg --query primaryKey -o tsv
+$uri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$rg/providers/Microsoft.CognitiveServices/accounts/$foundryResource/projects/$projectName/connections/$connectionName`?api-version=2025-04-01-preview"
+$body = @{ properties = @{ category = "CognitiveSearch"; target = $searchEndpoint; authType = "ApiKey"; isSharedToAll = $true; credentials = @{ key = $searchKey } } } | ConvertTo-Json -Depth 3
+curl.exe -X PUT $uri -H "Authorization: Bearer $armToken" -H "Content-Type: application/json" -d $body
+```
+
+> **Wait 15–30 seconds** after creation for ARM-to-data-plane propagation before running the migration script.
+
+> **Note on `ConnectionManagerService`:** The library's `_build_connection_url()` in
+> `oyd_migrator/services/connection_manager.py` currently falls back to the data-plane
+> endpoint (returns 405). The ARM curl above is the reliable workaround.
 
 ### Execute the Migration
 
@@ -121,15 +244,23 @@ export SEARCH_CONNECTION_NAME="my-search"           # Must equal the Azure AI Se
 export SEARCH_INDEX_NAME="my-index"                 # Azure AI Search index name
 export SEARCH_QUERY_TYPE="semantic"                 # simple | semantic | vector | vector_simple_hybrid | vector_semantic_hybrid
 export AGENT_NAME="my-migrated-agent"
-export AGENT_INSTRUCTIONS="You are a helpful assistant. Use the search tool to find information before answering."
+
+# System message — copy from your OYD role_information (see Step 0: Discovery)
+# If OYD used in_scope: true, append grounding constraint to the instructions.
+export AGENT_INSTRUCTIONS="You are a helpful assistant. Use the search tool to find information before answering. Only answer from the search results. If the information is not found, say so."
 
 # Optional: OYD source for side-by-side comparison
 export OYD_ENDPOINT="https://<aoai-resource>.openai.azure.com"
 export OYD_DEPLOYMENT="gpt-4o-mini"
 export AZURE_SEARCH_KEY="<search-api-key>"          # Never hardcode; use env var
 
-# Run
+# Run (idempotent — safe to re-run; creates a new agent each time)
 python scripts/run_migration.py
+
+# Batch migration: loop over multiple deployments
+# for each OYD deployment, set the env vars and re-run:
+#   export AGENT_NAME="agent-deployment-2" SEARCH_INDEX_NAME="index-2" ...
+#   python scripts/run_migration.py
 ```
 
 ### Configuration Reference
@@ -142,7 +273,7 @@ python scripts/run_migration.py
 | `SEARCH_INDEX_NAME` | `my-index` | Azure AI Search index |
 | `SEARCH_QUERY_TYPE` | `semantic` | `simple \| semantic \| vector \| vector_simple_hybrid \| vector_semantic_hybrid` |
 | `AGENT_NAME` | `oyd-migrated-agent` | Optional, has default |
-| `AGENT_INSTRUCTIONS` | `"You are a helpful assistant..."` | Maps from OYD `role_information` |
+| `AGENT_INSTRUCTIONS` | `"You are a helpful assistant..."` | Maps from OYD `role_information` — see [Step 0: Discovery](#step-0-discover-existing-oyd-configuration) |
 
 ### Key API Facts for Coding Agents
 
@@ -199,8 +330,9 @@ curl.exe "https://<foundry-resource>.services.ai.azure.com/api/projects/<project
 | `401 audience is incorrect` | Wrong token scope | Use `https://ai.azure.com/.default`, not management scope |
 | `400` on API call | Wrong API version | Use `2025-05-01` for standalone script, `v1` for SDK library |
 | Agent returns empty results | Missing RBAC on search | Assign `Search Index Data Reader` + `Search Service Contributor` to AI Services MI |
-| `405` on connection creation | Using data-plane for connections | Use portal or ARM management API (see connection section above) |
+| `405` on connection creation | Using data-plane for connections | Use portal or ARM REST API (see [Option B](#how-to-create-the-search-connection)) |
 | `ImportError` azure-mgmt-resource | Version 25.x breaking change | Pinned to `>=23.0.0,<25.0.0` in pyproject.toml |
+| Duplicate agents after re-run | Script is idempotent but creates new agents | Delete old agents via portal or `DELETE /assistants/{id}` before re-running |
 
 ### Model Selection Guide
 
@@ -273,48 +405,97 @@ tools = [{
 
 ---
 
+### Generate SDK Samples
+
+After migration, generate client code for integration testing:
+
+```bash
+# Generate Python SDK sample for the migrated agent
+oyd-migrator generate python <agent-name> --project-endpoint <endpoint>
+
+# Or use the library directly:
+python -c "
+from oyd_migrator.generators.sdk_samples import generate_python_sample
+print(generate_python_sample(
+    agent_name='my-migrated-agent',
+    project_endpoint='https://myresource.services.ai.azure.com/api/projects/myproject',
+    model='gpt-4.1-mini',
+))
+"
+```
+
+### Create Foundry Project (Optional)
+
+If you need to provision a new Foundry project programmatically:
+
+```bash
+# Via Azure CLI
+az cognitiveservices account create \
+  --name <project-name> \
+  --resource-group <rg> \
+  --kind AIServices \
+  --sku S0 \
+  --location eastus2
+```
+
+> In most cases the project is pre-provisioned. Skip this step if you already have a project endpoint.
+
+---
+
 ## Coding Agent Guidelines
 
 When a coding agent (GitHub Copilot, Claude Code, etc.) assists with migration:
 
-1. **Do not attempt to drive the interactive wizard** — `questionary` requires a real TTY.
+1. **Start with discovery** — Run [Step 0](#step-0-discover-existing-oyd-configuration) first.
+   Search the user's codebase for `data_sources` payloads to extract OYD configuration.
+   Do not ask the user for values that can be found in the code.
+
+2. **Do not attempt to drive the interactive wizard** — `questionary` requires a real TTY.
    Use `scripts/run_migration.py` or direct REST API calls instead.
 
-2. **Always check the Foundry resource type first:**
+3. **Always check the Foundry resource type first:**
    ```bash
    az cognitiveservices account show --name <name> --resource-group <rg> --query "kind"
    # Must return "AIServices", not an ML Workspace Hub
    ```
 
-3. **Create the search connection before running the script:**
-   - **Portal:** Management → Connected resources → + New connection (simplest)
-   - **ARM API:** Use `ConnectionManagerService.create_search_connection()` via management
-     scope (`api-version=2024-07-01-preview`). Do NOT use the project data-plane (returns 405).
+4. **Create the search connection before running the script:**
+   - **ARM REST API:** Use the `curl` PUT command in [Option B](#how-to-create-the-search-connection) — fully automated.
+   - **Portal fallback:** Management → Connected resources → + New connection.
+   - Do NOT use the project data-plane for connection creation (returns 405).
 
-4. **Use the correct token scopes:**
+5. **Use the correct token scopes:**
    - Agent CRUD: `https://ai.azure.com/.default`
-   - Connection management: `https://management.azure.com/.default`
+   - Connection management (ARM): `https://management.azure.com/.default`
    - OYD comparison queries: `https://cognitiveservices.azure.com/.default`
 
-5. **Use environment variables** — Do not edit `scripts/run_migration.py` directly.
+6. **Map OYD config to env vars** — Use the mapping table in Step 0. Copy `role_information`
+   to `AGENT_INSTRUCTIONS`. If `in_scope: true`, append a grounding constraint. Field mappings
+   are not configurable in the agent API — the search index schema handles them automatically.
+
+7. **Use environment variables** — Do not edit `scripts/run_migration.py` directly.
    Set `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL`, `SEARCH_CONNECTION_NAME`, etc.
 
-6. **Validate side-by-side** — The script automatically queries both the original OYD source
-   and the new Foundry agent with the same queries and compares results. Set `OYD_ENDPOINT`
-   and `AZURE_SEARCH_KEY` environment variables to enable comparison.
+8. **Validate side-by-side** — The script queries both the OYD source and the new Foundry
+   agent with the same queries and compares results. Set `OYD_ENDPOINT` and `AZURE_SEARCH_KEY`.
 
-7. **Handle ARM propagation delays** — After connection creation, the data-plane may take
-   15+ seconds to see the connection. The agent builder retries 3x with 10s/20s/30s delays.
-   If creation still fails, wait and re-run.
+9. **Handle ARM propagation delays** — After connection creation, wait 15–30 seconds.
+   The agent builder retries 3x (10s/20s/30s). The standalone script does not retry — re-run if needed.
 
-8. **Run tests** to validate the codebase after changes:
-   ```bash
-   pytest tests/                          # All tests
-   pytest tests/functional/               # Functional tests only
-   pytest tests/integration/              # Integration tests (needs Azure creds)
-   ```
+10. **Batch migration** — For multiple OYD deployments, loop: set different env vars per
+    deployment and run `python scripts/run_migration.py` for each. The script is idempotent.
 
-9. **Check `docs/KNOWN_LIMITATIONS.md`** for full details on edge cases and workarounds.
+11. **Generate SDK samples** after migration for integration testing:
+    `oyd-migrator generate python <agent-name> --project-endpoint <endpoint>`
+
+12. **Run tests** to validate the codebase after changes:
+    ```bash
+    pytest tests/                          # All tests
+    pytest tests/functional/               # Functional tests only
+    pytest tests/integration/              # Integration tests (needs Azure creds)
+    ```
+
+13. **Check `docs/KNOWN_LIMITATIONS.md`** for full details on edge cases and workarounds.
 
 ---
 
