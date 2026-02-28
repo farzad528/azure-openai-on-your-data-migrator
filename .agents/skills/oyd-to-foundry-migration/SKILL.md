@@ -369,6 +369,11 @@ instead of the Search Tool path. This uses MCP (Model Context Protocol) under th
 | Complex queries, multi-source | Works | ✅ Recommended |
 | SharePoint/OneLake sources | Not supported | ✅ Recommended |
 | Semantic reranking built-in | Manual config | ✅ Automatic |
+| Setup complexity | Lower — 1 connection | Higher — MCP connection + KB |
+| Query control | Direct (query_type, filters) | Abstracted (IQ decides strategy) |
+| Multi-index support | One index per tool_resource | Multiple KBs per agent |
+| Query decomposition | Not supported | ✅ Automatic sub-query planning |
+| Agentic reasoning | Basic tool use | ✅ Multi-step reasoning over results |
 
 ### Key Differences in Agent Creation
 
@@ -402,6 +407,226 @@ tools = [{
 | `top_n_documents` | `top_k` on retrieve call | Same concept |
 | `role_information` | Agent `instructions` | Direct mapping |
 | `in_scope: true` | Append grounding constraint to instructions | Manual enforcement |
+
+### Migration Option Flags
+
+When migrating, consider these options (the interactive wizard exposes these as toggles):
+
+| Option | Description | Coding Agent Action |
+|--------|-------------|--------------------|
+| `preserve_query_type` | Maintain the OYD query type in the search tool config | Set `SEARCH_QUERY_TYPE` env var to match the OYD `query_type` value |
+| `migrate_system_message` | Transfer OYD `role_information` to agent instructions | Copy `role_information` text to `AGENT_INSTRUCTIONS` env var |
+
+> **Note:** The interactive wizard's `_build_instructions()` in `review_wizard.py` has a
+> `TODO: Extract role_information from OYD config and merge` — the system message migration
+> is not fully implemented in the wizard. The coding agent path (Step 0 → env vars) handles
+> this correctly. Always extract `role_information` from the OYD config and map it yourself.
+
+### Step 1: Create the MCP Connection
+
+The KB agent needs an **MCP (RemoteTool)** connection — this is a different connection type
+than the CognitiveSearch connection used by the Search Tool path.
+
+**Option A — Portal:**
+1. Go to https://ai.azure.com → select your project
+2. **Management** → **Connected resources** → **+ New connection**
+3. Select **Azure AI Search** → choose your search service
+4. Change connection type to **MCP / Remote Tool**
+5. Auth: **Project Managed Identity** (the Foundry project's MI authenticates to search)
+
+**Option B — ARM REST API (fully automated):**
+
+```bash
+# Set variables
+SUBSCRIPTION_ID="<subscription-id>"
+RESOURCE_GROUP="<resource-group>"
+FOUNDRY_RESOURCE="<foundry-resource-name>"
+PROJECT_NAME="<project-name>"
+MCP_CONNECTION_NAME="<search-service-name>-mcp"  # Convention: append -mcp to distinguish from search connection
+SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+
+# Get ARM token
+ARM_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+
+# Create MCP connection via ARM PUT
+curl -X PUT \
+  "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_RESOURCE}/projects/${PROJECT_NAME}/connections/${MCP_CONNECTION_NAME}?api-version=2025-04-01-preview" \
+  -H "Authorization: Bearer ${ARM_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"properties\": {
+      \"authType\": \"ProjectManagedIdentity\",
+      \"category\": \"RemoteTool\",
+      \"target\": \"${SEARCH_ENDPOINT}\",
+      \"isSharedToAll\": true,
+      \"audience\": \"https://search.azure.com/\",
+      \"metadata\": { \"ApiType\": \"Azure\" }
+    }
+  }"
+```
+
+**PowerShell equivalent:**
+```powershell
+$armToken = az account get-access-token --resource https://management.azure.com --query accessToken -o tsv
+$uri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$rg/providers/Microsoft.CognitiveServices/accounts/$foundryResource/projects/$projectName/connections/$mcpConnectionName`?api-version=2025-04-01-preview"
+$body = @{ properties = @{ authType = "ProjectManagedIdentity"; category = "RemoteTool"; target = $searchEndpoint; isSharedToAll = $true; audience = "https://search.azure.com/"; metadata = @{ ApiType = "Azure" } } } | ConvertTo-Json -Depth 3
+curl.exe -X PUT $uri -H "Authorization: Bearer $armToken" -H "Content-Type: application/json" -d $body
+```
+
+> **RBAC prerequisite for MCP connections:** The Foundry project's managed identity must have
+> `Search Index Data Reader` and `Search Service Contributor` on the search service.
+> The search service auth mode must be `aadOrApiKey` or `rbac` (not `apiKeyOnly`).
+
+> **Wait 15–30 seconds** after creation for ARM-to-data-plane propagation.
+
+### Step 2: Provision the Knowledge Base
+
+A Knowledge Base (KB) must exist on the Azure AI Search service before the agent can use it.
+The KB is a search-service-level resource that wraps one or more indexes with IQ capabilities.
+
+**Option A — Auto-creation via Foundry Portal:**
+When you add a Knowledge Base data source in the Foundry Agent playground, the portal
+automatically creates the KB on the search service. This is the simplest approach.
+
+**Option B — REST API (programmatic):**
+
+```bash
+# Set variables
+SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+KB_NAME="kb-<search-service>"  # Convention from agent_builder.py: kb-{connection-name}
+INDEX_NAME="<index-name>"
+
+# Get search token (or use admin key)
+SEARCH_TOKEN=$(az account get-access-token --resource https://search.azure.com --query accessToken -o tsv)
+
+# Create Knowledge Base
+curl -X PUT \
+  "${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}?api-version=2025-11-01-preview" \
+  -H "Authorization: Bearer ${SEARCH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"description\": \"Migrated from OYD\",
+    \"indexNames\": [\"${INDEX_NAME}\"]
+  }"
+
+# Verify the KB was created
+curl -s "${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}?api-version=2025-11-01-preview" \
+  -H "Authorization: Bearer ${SEARCH_TOKEN}"
+```
+
+> **Note:** The Knowledge Base API is in preview (`2025-11-01-preview`). The KB wraps the
+> existing search index — it does not copy or move data. Multiple indexes can be added to a
+> single KB for multi-source scenarios.
+
+### Step 3: Create the KB Agent
+
+```bash
+# Set environment variables
+export FOUNDRY_PROJECT_ENDPOINT="https://<foundry-resource>.services.ai.azure.com/api/projects/<project-name>"
+export FOUNDRY_MODEL="gpt-4.1-mini"
+export SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+export KB_NAME="kb-<search-service>"   # Must match the KB created in Step 2
+export MCP_CONNECTION_ID=""             # From Step 1 response: properties.id or full ARM resource ID
+export AGENT_NAME="my-kb-migrated-agent"
+export AGENT_INSTRUCTIONS="You are a helpful assistant. Use the knowledge base to find information before answering. Only answer from the search results. If the information is not found, say so."
+
+# Get Foundry token
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+
+# Build MCP server URL
+MCP_URL="${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}/mcp?api-version=2025-11-01-preview"
+
+# Create agent with MCP tool
+curl -X POST \
+  "${FOUNDRY_PROJECT_ENDPOINT}/assistants?api-version=2025-05-01" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"${AGENT_NAME}\",
+    \"model\": \"${FOUNDRY_MODEL}\",
+    \"instructions\": \"${AGENT_INSTRUCTIONS}\",
+    \"tools\": [{
+      \"type\": \"mcp\",
+      \"server_label\": \"$(echo ${KB_NAME} | tr '-' '_')\",
+      \"server_url\": \"${MCP_URL}\",
+      \"require_approval\": \"never\",
+      \"allowed_tools\": [\"knowledge_base_retrieve\"],
+      \"project_connection_id\": \"${MCP_CONNECTION_ID}\"
+    }]
+  }"
+```
+
+**PowerShell equivalent:**
+```powershell
+$token = az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv
+$mcpUrl = "$searchEndpoint/knowledgebases/$kbName/mcp?api-version=2025-11-01-preview"
+$serverLabel = $kbName -replace '-', '_'
+$body = @{
+    name = $agentName
+    model = $foundryModel
+    instructions = $agentInstructions
+    tools = @(@{
+        type = "mcp"
+        server_label = $serverLabel
+        server_url = $mcpUrl
+        require_approval = "never"
+        allowed_tools = @("knowledge_base_retrieve")
+        project_connection_id = $mcpConnectionId
+    })
+} | ConvertTo-Json -Depth 4
+curl.exe -X POST "$foundryProjectEndpoint/assistants?api-version=2025-05-01" `
+  -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d $body
+```
+
+### Verify KB Agent
+
+```bash
+# Test the KB agent (same as Search Tool verification)
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+
+# Create a thread
+THREAD=$(curl -s -X POST "${FOUNDRY_PROJECT_ENDPOINT}/threads?api-version=2025-05-01" \
+  -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"What information do you have available?"}]}' | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+# Create a run
+RUN=$(curl -s -X POST "${FOUNDRY_PROJECT_ENDPOINT}/threads/${THREAD}/runs?api-version=2025-05-01" \
+  -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+  -d "{\"assistant_id\": \"${AGENT_ID}\"}" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+echo "Thread: ${THREAD}, Run: ${RUN}"
+# Poll for completion, then GET /threads/{thread}/messages to see the response
+```
+
+### KB Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `404` on KB MCP URL | Knowledge Base doesn't exist on search service | Create the KB first (Step 2) |
+| `403` on MCP connection | Foundry MI lacks RBAC on search | Assign `Search Index Data Reader` + `Search Service Contributor` to MI |
+| `401 audience` on agent call | Wrong token scope | Use `https://ai.azure.com/.default` for agent CRUD |
+| Empty KB results | Index has no data or wrong index name | Verify `indexNames` in KB definition matches your populated index |
+| MCP tool not invoked | `allowed_tools` missing | Ensure `allowed_tools: ["knowledge_base_retrieve"]` in tool config |
+
+---
+
+### Supported OYD Data Source Types
+
+The OYD API supports multiple data source types (`oyd_migrator/models/oyd.py`):
+
+| OYD Data Source Type | Wizard Support | Coding Agent Support | Migration Path |
+|---------------------|----------------|---------------------|----------------|
+| `azure_search` | ✅ Full | ✅ Full | Search Tool or Knowledge Base |
+| `azure_blob_storage` | ❌ Model only | ❌ Not implemented | Index blob data into Azure AI Search first, then migrate |
+| `azure_cosmos_db` | ❌ Model only | ❌ Not implemented | Index CosmosDB data into Azure AI Search first, then migrate |
+| `url` | ❌ Model only | ❌ Not implemented | Crawl URLs into a search index first, then migrate |
+| `uploaded_file` | ❌ Model only | ❌ Not implemented | Upload files to a search index first, then migrate |
+
+> **Key limitation:** Both the interactive wizard and the coding agent path only support
+> `azure_search` as the OYD data source type. For other source types, the data must first
+> be indexed into Azure AI Search (using an indexer, skillset, or manual ingestion pipeline),
+> and then the standard `azure_search` migration path applies.
+> See `docs/KNOWN_LIMITATIONS.md` for full details.
 
 ---
 
@@ -460,7 +685,8 @@ When a coding agent (GitHub Copilot, Claude Code, etc.) assists with migration:
    ```
 
 4. **Create the search connection before running the script:**
-   - **ARM REST API:** Use the `curl` PUT command in [Option B](#how-to-create-the-search-connection) — fully automated.
+   - **Search Tool path:** Use the `curl` PUT command in [Option B](#how-to-create-the-search-connection) — creates a `CognitiveSearch` connection.
+   - **Knowledge Base path:** Use the MCP connection in [KB Step 1](#step-1-create-the-mcp-connection) — creates a `RemoteTool` connection with `ProjectManagedIdentity`.
    - **Portal fallback:** Management → Connected resources → + New connection.
    - Do NOT use the project data-plane for connection creation (returns 405).
 
