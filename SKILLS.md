@@ -1,6 +1,6 @@
 ---
 name: oyd-to-foundry-migration
-description: "**WORKFLOW SKILL** — Migrate Azure OpenAI On Your Data (OYD) configurations to Azure AI Foundry Agent Service. WHEN: \"migrate OYD to Foundry\", \"create Foundry agent from OYD\", \"OYD migration\", \"convert OYD to agent\", \"search tool agent\", \"knowledge base migration\". INVOKES: Azure CLI, REST APIs (Foundry Agent Service, Azure AI Search), run_migration.py script. FOR SINGLE OPERATIONS: use Azure AI Foundry portal directly for manual agent creation."
+description: "**WORKFLOW SKILL** — Migrate Azure OpenAI On Your Data (OYD) to AI Foundry Agent Service. WHEN: \"migrate OYD to Foundry\", \"create Foundry agent from OYD\", \"OYD migration\", \"convert OYD to agent\", \"search tool agent\", \"knowledge base migration\". INVOKES: Azure CLI, REST APIs, run_migration.py. FOR SINGLE OPERATIONS: use AI Foundry portal directly."
 ---
 
 # Skills Reference
@@ -18,15 +18,16 @@ migration path, how to execute each one, and SDK references for integration work
 
 | Scenario | Use This Path |
 |----------|--------------|
-| Running from a coding agent / CI/CD pipeline | **Coding Agent Path** (REST API script) |
+| Running from a coding agent / CI/CD pipeline | **Coding Agent Path** (REST API script) — see [Path 1](#path-1--coding-agent-programmatic-rest-api) below |
 | Fully automated batch migration | **Coding Agent Path** (REST API script) |
-| Interactive human-guided migration | **Human Wizard Path** (`oyd-migrator wizard`) |
-| First-time migration with unknown config | **Human Wizard Path** — wizard prompts for details |
+| Interactive human-guided migration | **Human Wizard Path** (`oyd-migrator wizard`) — see [README.md](README.md) and [AGENTS.md](AGENTS.md) for wizard instructions |
+| First-time migration with unknown config | **Human Wizard Path** — see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md) |
 | Known OYD config, scripted repeat migration | **Coding Agent Path** |
 
 > **Why two paths?** The CLI wizard uses `questionary` for interactive prompts (arrow-key
 > selection, spinners) which requires a real TTY. Coding agents and CI/CD pipelines do not
 > have a TTY, so they must use the direct REST API script instead.
+> The wizard instructions are in [README.md](README.md) and [AGENTS.md](AGENTS.md); this file focuses on the coding agent path.
 
 ---
 
@@ -96,10 +97,14 @@ You have two options:
 4. Set auth to **API Key** or **Microsoft Entra ID**
 5. Note the connection name (use this as `SEARCH_CONNECTION_NAME`)
 
-**Option B — ARM Management API (automatable):**
-The `ConnectionManagerService` in `oyd_migrator/services/connection_manager.py` creates
-connections via the ARM management API (`api-version=2024-07-01-preview`) using
-`https://management.azure.com/.default` scope. This is suitable for CI/CD pipelines.
+**Option B — ConnectionManagerService (partially implemented):**
+The `ConnectionManagerService` in `oyd_migrator/services/connection_manager.py` is intended
+to create connections via the ARM management API. However, the current implementation's
+`_build_connection_url()` falls back to the data-plane endpoint (a known limitation —
+see code comments). It uses `https://management.azure.com/.default` scope for listing.
+For reliable automated connection creation, use the portal (Option A) or call the ARM
+REST API directly with the full resource path:
+`PUT https://management.azure.com/{project-resource-id}/connections/{name}?api-version=2024-07-01-preview`.
 
 ### Execute the Migration
 
@@ -190,7 +195,7 @@ curl "https://<foundry-resource>.services.ai.azure.com/api/projects/<project>/as
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `404` on agent creation | ARM-to-data-plane propagation delay | Script retries 3x (10s, 20s, 30s). Wait and re-run if needed. |
+| `404` on agent creation | ARM-to-data-plane propagation delay | `agent_builder.py` retries 3x (10s, 20s, 30s). The standalone `run_migration.py` does **not** retry — re-run manually if needed. |
 | `401 audience is incorrect` | Wrong token scope | Use `https://ai.azure.com/.default`, not management scope |
 | `400` on API call | Wrong API version | Use `2025-05-01` for standalone script, `v1` for SDK library |
 | Agent returns empty results | Missing RBAC on search | Assign `Search Index Data Reader` + `Search Service Contributor` to AI Services MI |
