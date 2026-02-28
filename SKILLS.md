@@ -9,7 +9,7 @@ This document provides guidance for both **coding agents** (GitHub Copilot, Clau
 and **human operators** performing OYD-to-Foundry migrations. It covers when to use each
 migration path, how to execute each one, and SDK references for integration work.
 
-> **Coding agents:** Start at [Path 1 — Coding Agent](#path-1--coding-agent-programmatic-rest-api).
+> **Coding agents:** Start at [Coding Agent Path](#coding-agent-path-programmatic-rest-api).
 > Do **not** attempt to drive the interactive wizard — it requires a real TTY.
 
 ---
@@ -18,20 +18,20 @@ migration path, how to execute each one, and SDK references for integration work
 
 | Scenario | Use This Path |
 |----------|--------------|
-| Running from a coding agent / CI/CD pipeline | **Coding Agent Path** (REST API script) — see [Path 1](#path-1--coding-agent-programmatic-rest-api) below |
+| Running from a coding agent / CI/CD pipeline | **Coding Agent Path** (REST API script) — see [below](#coding-agent-path-programmatic-rest-api) |
 | Fully automated batch migration | **Coding Agent Path** (REST API script) |
 | Interactive human-guided migration | **Human Wizard Path** (`oyd-migrator wizard`) — see [README.md](README.md) and [AGENTS.md](AGENTS.md) for wizard instructions |
 | First-time migration with unknown config | **Human Wizard Path** — see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md) |
 | Known OYD config, scripted repeat migration | **Coding Agent Path** |
 
-> **Why two paths?** The CLI wizard uses `questionary` for interactive prompts (arrow-key
-> selection, spinners) which requires a real TTY. Coding agents and CI/CD pipelines do not
-> have a TTY, so they must use the direct REST API script instead.
-> The wizard instructions are in [README.md](README.md) and [AGENTS.md](AGENTS.md); this file focuses on the coding agent path.
+> **Note:** The CLI wizard (`oyd-migrator wizard`) uses `questionary` for interactive prompts
+> which requires a real TTY — coding agents and CI/CD pipelines cannot use it.
+> For wizard instructions see [README.md](README.md) and [AGENTS.md](AGENTS.md).
+> This file covers the programmatic (REST API) approach only.
 
 ---
 
-## Path 1 — Coding Agent (Programmatic REST API)
+## Coding Agent Path (Programmatic REST API)
 
 Use this path when running from a coding agent, CI/CD, or any non-interactive environment.
 
@@ -223,7 +223,7 @@ Tested live with identical queries against the `hrdocs` index (semantic search, 
 
 ---
 
-## Path 1b — Knowledge Base Migration (Coding Agent)
+## Knowledge Base Migration (Coding Agent)
 
 For complex queries or multi-source scenarios, use the Foundry IQ Knowledge Base path
 instead of the Search Tool path. This uses MCP (Model Context Protocol) under the hood.
