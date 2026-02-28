@@ -20,13 +20,13 @@ migration path, how to execute each one, and SDK references for integration work
 |----------|--------------|
 | Running from a coding agent / CI/CD pipeline | **Coding Agent Path** (REST API script) — see [below](#coding-agent-path-programmatic-rest-api) |
 | Fully automated batch migration | **Coding Agent Path** (REST API script) |
-| Interactive human-guided migration | **Human Wizard Path** (`oyd-migrator wizard`) — see [README.md](README.md) and [AGENTS.md](AGENTS.md) for wizard instructions |
-| First-time migration with unknown config | **Human Wizard Path** — see [docs/MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md) |
+| Interactive human-guided migration | **Human Wizard Path** (`oyd-migrator wizard`) — see [README.md](../../../README.md) and [AGENTS.md](../../../AGENTS.md) for wizard instructions |
+| First-time migration with unknown config | **Human Wizard Path** — see [docs/MIGRATION_GUIDE.md](../../../docs/MIGRATION_GUIDE.md) |
 | Known OYD config, scripted repeat migration | **Coding Agent Path** |
 
 > **Note:** The CLI wizard (`oyd-migrator wizard`) uses `questionary` for interactive prompts
 > which requires a real TTY — coding agents and CI/CD pipelines cannot use it.
-> For wizard instructions see [README.md](README.md) and [AGENTS.md](AGENTS.md).
+> For wizard instructions see [README.md](../../../README.md) and [AGENTS.md](../../../AGENTS.md).
 > This file covers the programmatic (REST API) approach only.
 
 ---
@@ -345,4 +345,3 @@ Copilot Skills:
 
 These skills are managed by Microsoft at [github.com/microsoft/skills](https://github.com/microsoft/skills).
 Attach the relevant skill when working on service integration code.
-

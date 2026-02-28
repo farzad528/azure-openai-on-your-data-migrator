@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "sensei": {
+      "source": "spboyer/sensei",
+      "sourceType": "github",
+      "computedHash": "73720c7d371ac48abf58b03dd936e9dadfb5d693b08950de50dccc75edff998d"
+    },
+    "oyd-to-foundry-migration": {
+      "source": "local",
+      "sourceType": "local",
+      "path": ".agents/skills/oyd-to-foundry-migration"
+    }
+  }
+}
