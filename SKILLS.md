@@ -51,7 +51,7 @@ az cognitiveservices account show --name <your-aoai-resource> --resource-group <
 ADMIN_KEY=$(az search admin-key show --service-name <your-search-service> --resource-group <rg> --query primaryKey -o tsv)
 curl -s -H "api-key: $ADMIN_KEY" "https://<your-search-service>.search.windows.net/indexes/<index-name>?api-version=2024-07-01" | python -c "import sys,json; d=json.load(sys.stdin); print(d['name'], '-', len(d.get('fields',[])), 'fields')"
 #    PowerShell: $adminKey = az search admin-key show --service-name <svc> --resource-group <rg> --query primaryKey -o tsv
-#    curl -H "api-key: $adminKey" "https://<svc>.search.windows.net/indexes/<index>?api-version=2024-07-01"
+#    curl.exe -H "api-key: $adminKey" "https://<svc>.search.windows.net/indexes/<index>?api-version=2024-07-01"
 
 # 4. Confirm Foundry project endpoint resolves
 # Must be a CognitiveServices/AIServices account, NOT an ML Workspace Hub
@@ -117,7 +117,7 @@ pip install -e .
 # Set environment variables (do NOT edit the script directly)
 export FOUNDRY_PROJECT_ENDPOINT="https://<foundry-resource>.services.ai.azure.com/api/projects/<project-name>"
 export FOUNDRY_MODEL="gpt-4.1-mini"               # Must match a deployed model in the project
-export SEARCH_CONNECTION_NAME="my-search"           # Connection name created in portal/ARM
+export SEARCH_CONNECTION_NAME="my-search"           # Must equal the Azure AI Search service name (DNS prefix before .search.windows.net) and the Foundry connection name
 export SEARCH_INDEX_NAME="my-index"                 # Azure AI Search index name
 export SEARCH_QUERY_TYPE="semantic"                 # simple | semantic | vector | vector_simple_hybrid | vector_semantic_hybrid
 export AGENT_NAME="my-migrated-agent"
@@ -138,7 +138,7 @@ python scripts/run_migration.py
 |---------------------|---------|-------|
 | `FOUNDRY_PROJECT_ENDPOINT` | `https://myresource.services.ai.azure.com/api/projects/myproject` | Required |
 | `FOUNDRY_MODEL` | `gpt-4.1-mini` | Must be deployed in project |
-| `SEARCH_CONNECTION_NAME` | `my-search` | From portal or ARM |
+| `SEARCH_CONNECTION_NAME` | `my-search` | Must match Azure AI Search service DNS name **and** Foundry connection name |
 | `SEARCH_INDEX_NAME` | `my-index` | Azure AI Search index |
 | `SEARCH_QUERY_TYPE` | `semantic` | `simple \| semantic \| vector \| vector_simple_hybrid \| vector_semantic_hybrid` |
 | `AGENT_NAME` | `oyd-migrated-agent` | Optional, has default |
@@ -187,7 +187,7 @@ curl "https://<foundry-resource>.services.ai.azure.com/api/projects/<project>/as
 **PowerShell equivalent:**
 ```powershell
 $TOKEN = az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv
-curl "https://<foundry-resource>.services.ai.azure.com/api/projects/<project>/assistants?api-version=2025-05-01" `
+curl.exe "https://<foundry-resource>.services.ai.azure.com/api/projects/<project>/assistants?api-version=2025-05-01" `
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -270,8 +270,6 @@ tools = [{
 | `top_n_documents` | `top_k` on retrieve call | Same concept |
 | `role_information` | Agent `instructions` | Direct mapping |
 | `in_scope: true` | Append grounding constraint to instructions | Manual enforcement |
-
----
 
 ---
 
