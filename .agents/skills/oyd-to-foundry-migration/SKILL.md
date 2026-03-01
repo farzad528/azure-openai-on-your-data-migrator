@@ -285,6 +285,7 @@ token = credential.get_token("https://ai.azure.com/.default")
 #   - run_migration.py (standalone script): API_VERSION = "2025-05-01"
 #   - agent_builder.py (library):           API_VERSION = "v1"
 #   - connection_manager.py (connections):  API_VERSION = "2024-07-01-preview"
+#   - POST /agents (Foundry-native):        api-version = "2025-11-15-preview" or "v1"
 
 # ✅ Correct endpoint format
 # https://{resource-name}.services.ai.azure.com/api/projects/{project-name}
@@ -378,25 +379,55 @@ instead of the Search Tool path. This uses MCP (Model Context Protocol) under th
 ### Key Differences in Agent Creation
 
 ```python
-# Search Tool agent — uses azure_ai_search tool type
-tools = [{"type": "azure_ai_search"}]
-tool_resources = {
-    "azure_ai_search": {
-        "indexes": [{"index_connection_id": conn_id, "index_name": "my-index", ...}]
-    }
-}
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import (
+    AzureAISearchTool, AzureAISearchToolResource, AISearchIndexResource,
+    AzureAISearchQueryType, MCPTool, PromptAgentDefinition,
+)
+from azure.identity import DefaultAzureCredential
 
-# Knowledge Base agent — uses MCP tool type
-# MCP endpoint: {search_endpoint}/knowledgebases/{kb_name}/mcp?api-version=2025-11-01-preview
-tools = [{
-    "type": "mcp",
-    "server_label": "my_kb",
-    "server_url": "https://my-search.search.windows.net/knowledgebases/my-kb/mcp?api-version=2025-11-01-preview",
-    "require_approval": "never",
-    "allowed_tools": ["knowledge_base_retrieve"],
-    "project_connection_id": conn_id,
-}]
+client = AIProjectClient(endpoint=PROJECT_ENDPOINT, credential=DefaultAzureCredential())
+
+# Search Tool agent — uses AzureAISearchTool (RECOMMENDED, fully working)
+search_tool = AzureAISearchTool(
+    azure_ai_search=AzureAISearchToolResource(
+        indexes=[AISearchIndexResource(
+            project_connection_id="my-search",  # Foundry connection name
+            index_name="my-index",
+            query_type=AzureAISearchQueryType.VECTOR_SEMANTIC_HYBRID,
+            top_k=5,
+        )]
+    )
+)
+agent = client.agents.create_version(
+    agent_name="my-agent",
+    definition=PromptAgentDefinition(model="gpt-4.1-mini", instructions="...", tools=[search_tool]),
+)
+
+# Knowledge Base agent — uses MCPTool (PREVIEW — see transport caveat below)
+mcp_tool = MCPTool(
+    server_label="my_kb",
+    server_url="https://my-search.search.windows.net/knowledgebases/my-kb/mcp",
+    require_approval="never",
+    allowed_tools=["knowledge_base_retrieve"],
+    project_connection_id="my-search-mcp",
+    headers={"api-version": "2025-11-01-preview"},
+)
+agent = client.agents.create_version(
+    agent_name="my-kb-agent",
+    definition=PromptAgentDefinition(model="gpt-4.1-mini", instructions="...", tools=[mcp_tool]),
+)
 ```
+
+> **⚠️ MCP Transport Caveat (as of Feb 2026):** The Foundry Agent Service runtime uses
+> SSE transport (HTTP GET) to enumerate MCP tools, but Azure AI Search's MCP endpoint
+> only supports Streamable HTTP (HTTP POST). This results in a `405 Method Not Allowed`
+> error when the agent tries to invoke the MCP tool. The `MCPTool` SDK class has no
+> `transport` parameter to override this behavior.
+>
+> **Recommended workaround:** Use `AzureAISearchTool` with `vector_semantic_hybrid`
+> query type. This provides comparable retrieval quality without the MCP transport issue.
+> The MCP path will work once the Foundry runtime adds Streamable HTTP support.
 
 ### OYD Parameter Mapping for Knowledge Base
 
@@ -490,23 +521,41 @@ automatically creates the KB on the search service. This is the simplest approac
 
 **Option B — REST API (programmatic):**
 
+The KB uses a **two-level schema**: first create a Knowledge Source (wraps the index),
+then create a Knowledge Base (references one or more Knowledge Sources).
+
 ```bash
 # Set variables
 SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
 KB_NAME="kb-<search-service>"  # Convention from agent_builder.py: kb-{connection-name}
+KS_NAME="${KB_NAME}-source"   # Knowledge Source name
 INDEX_NAME="<index-name>"
 
 # Get search token (or use admin key)
 SEARCH_TOKEN=$(az account get-access-token --resource https://search.azure.com --query accessToken -o tsv)
 
-# Create Knowledge Base
+# Step 2a: Create Knowledge Source (wraps the search index)
+curl -X PUT \
+  "${SEARCH_ENDPOINT}/knowledgesources/${KS_NAME}?api-version=2025-11-01-preview" \
+  -H "Authorization: Bearer ${SEARCH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"description\": \"Source for ${INDEX_NAME}\",
+    \"kind\": \"searchIndex\",
+    \"searchIndexParameters\": {
+      \"searchIndexName\": \"${INDEX_NAME}\",
+      \"sourceDataFields\": []
+    }
+  }"
+
+# Step 2b: Create Knowledge Base (references the Knowledge Source)
 curl -X PUT \
   "${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}?api-version=2025-11-01-preview" \
   -H "Authorization: Bearer ${SEARCH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{
     \"description\": \"Migrated from OYD\",
-    \"indexNames\": [\"${INDEX_NAME}\"]
+    \"knowledgeSources\": [\"${KS_NAME}\"]
   }"
 
 # Verify the KB was created
@@ -515,98 +564,164 @@ curl -s "${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}?api-version=2025-11-01-pre
 ```
 
 > **Note:** The Knowledge Base API is in preview (`2025-11-01-preview`). The KB wraps the
-> existing search index — it does not copy or move data. Multiple indexes can be added to a
-> single KB for multi-source scenarios.
+> existing search index via a Knowledge Source — it does not copy or move data. Multiple
+> Knowledge Sources (each wrapping a different index) can be added to a single KB for
+> multi-source scenarios.
 
 ### Step 3: Create the KB Agent
 
-```bash
-# Set environment variables
-export FOUNDRY_PROJECT_ENDPOINT="https://<foundry-resource>.services.ai.azure.com/api/projects/<project-name>"
-export FOUNDRY_MODEL="gpt-4.1-mini"
-export SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
-export KB_NAME="kb-<search-service>"   # Must match the KB created in Step 2
-export MCP_CONNECTION_ID=""             # From Step 1 response: properties.id or full ARM resource ID
-export AGENT_NAME="my-kb-migrated-agent"
-export AGENT_INSTRUCTIONS="You are a helpful assistant. Use the knowledge base to find information before answering. Only answer from the search results. If the information is not found, say so."
+**Approach A — AzureAISearchTool (RECOMMENDED, fully E2E verified):**
 
-# Get Foundry token
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+Uses the native `AzureAISearchTool` with `vector_semantic_hybrid` query type via the
+`azure-ai-projects` SDK. This avoids the MCP transport issue entirely.
 
-# Build MCP server URL
-MCP_URL="${SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}/mcp?api-version=2025-11-01-preview"
+```python
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import (
+    AzureAISearchTool, AzureAISearchToolResource, AISearchIndexResource,
+    AzureAISearchQueryType, PromptAgentDefinition,
+)
 
-# Create agent with MCP tool
-curl -X POST \
-  "${FOUNDRY_PROJECT_ENDPOINT}/assistants?api-version=2025-05-01" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"name\": \"${AGENT_NAME}\",
-    \"model\": \"${FOUNDRY_MODEL}\",
-    \"instructions\": \"${AGENT_INSTRUCTIONS}\",
-    \"tools\": [{
-      \"type\": \"mcp\",
-      \"server_label\": \"$(echo ${KB_NAME} | tr '-' '_')\",
-      \"server_url\": \"${MCP_URL}\",
-      \"require_approval\": \"never\",
-      \"allowed_tools\": [\"knowledge_base_retrieve\"],
-      \"project_connection_id\": \"${MCP_CONNECTION_ID}\"
-    }]
-  }"
+# Configuration
+PROJECT_ENDPOINT = "https://<foundry-resource>.services.ai.azure.com/api/projects/<project-name>"
+SEARCH_CONN = "<search-service-name>"   # Foundry connection name (CognitiveSearch type)
+INDEX_NAME = "<index-name>"
+MODEL = "gpt-4.1-mini"
+AGENT_NAME = "my-kb-migrated-agent"
+INSTRUCTIONS = "You are a helpful assistant. Answer questions using the search tool. Always cite sources."
+
+credential = DefaultAzureCredential()
+client = AIProjectClient(endpoint=PROJECT_ENDPOINT, credential=credential)
+openai_client = client.get_openai_client()
+
+# Create agent with AzureAISearchTool
+search_tool = AzureAISearchTool(
+    azure_ai_search=AzureAISearchToolResource(
+        indexes=[AISearchIndexResource(
+            project_connection_id=SEARCH_CONN,
+            index_name=INDEX_NAME,
+            query_type=AzureAISearchQueryType.VECTOR_SEMANTIC_HYBRID,
+            top_k=5,
+        )]
+    )
+)
+
+agent_version = client.agents.create_version(
+    agent_name=AGENT_NAME,
+    definition=PromptAgentDefinition(
+        model=MODEL,
+        instructions=INSTRUCTIONS,
+        tools=[search_tool],
+    ),
+    description="Migrated from OYD",
+)
+print(f"Agent created: {agent_version.name} v{agent_version.version}")
+
+# Invoke the agent via Conversations + Responses API
+conv = openai_client.conversations.create()
+response = openai_client.responses.create(
+    model=MODEL,
+    input="What is the vacation policy?",
+    extra_body={
+        "agent_reference": {"name": AGENT_NAME, "type": "agent_reference"},
+        "conversation": {"id": conv.id},
+    },
+)
+for item in (response.output or []):
+    if hasattr(item, "content"):
+        for c in (item.content or []):
+            if hasattr(c, "text"):
+                print(c.text)
 ```
 
-**PowerShell equivalent:**
-```powershell
-$token = az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv
-$mcpUrl = "$searchEndpoint/knowledgebases/$kbName/mcp?api-version=2025-11-01-preview"
-$serverLabel = $kbName -replace '-', '_'
-$body = @{
-    name = $agentName
-    model = $foundryModel
-    instructions = $agentInstructions
-    tools = @(@{
-        type = "mcp"
-        server_label = $serverLabel
-        server_url = $mcpUrl
-        require_approval = "never"
-        allowed_tools = @("knowledge_base_retrieve")
-        project_connection_id = $mcpConnectionId
-    })
-} | ConvertTo-Json -Depth 4
-curl.exe -X POST "$foundryProjectEndpoint/assistants?api-version=2025-05-01" `
-  -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d $body
+> **Requires:** `pip install azure-ai-projects>=2.0.0b4 azure-identity openai`
+
+**Approach B — MCPTool (PREVIEW, subject to 405 transport issue):**
+
+Uses the MCP-based Knowledge Base retrieval. Currently blocked by a platform limitation
+where the Foundry runtime uses SSE transport (GET) but Azure AI Search MCP requires
+Streamable HTTP (POST). Agent creation succeeds but invocation returns 405.
+
+```python
+from azure.ai.projects.models import MCPTool, PromptAgentDefinition
+
+mcp_tool = MCPTool(
+    server_label="my_kb",
+    server_url="https://<search-service>.search.windows.net/knowledgebases/<kb-name>/mcp",
+    require_approval="never",
+    allowed_tools=["knowledge_base_retrieve"],
+    project_connection_id="<mcp-connection-name>",
+    headers={"api-version": "2025-11-01-preview"},
+)
+
+agent = client.agents.create_version(
+    agent_name="my-kb-agent",
+    definition=PromptAgentDefinition(model="gpt-4.1-mini", instructions="...", tools=[mcp_tool]),
+)
+# ⚠️ Invocation will fail with 405 until Foundry runtime supports Streamable HTTP transport
 ```
 
 ### Verify KB Agent
 
-```bash
-# Test the KB agent (same as Search Tool verification)
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+Use the Conversations + Responses API (the native Foundry invocation pattern):
 
-# Create a thread
-THREAD=$(curl -s -X POST "${FOUNDRY_PROJECT_ENDPOINT}/threads?api-version=2025-05-01" \
-  -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"What information do you have available?"}]}' | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+```python
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
 
-# Create a run
-RUN=$(curl -s -X POST "${FOUNDRY_PROJECT_ENDPOINT}/threads/${THREAD}/runs?api-version=2025-05-01" \
-  -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
-  -d "{\"assistant_id\": \"${AGENT_ID}\"}" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+client = AIProjectClient(
+    endpoint="https://<foundry-resource>.services.ai.azure.com/api/projects/<project-name>",
+    credential=DefaultAzureCredential(),
+)
+openai_client = client.get_openai_client()
 
-echo "Thread: ${THREAD}, Run: ${RUN}"
-# Poll for completion, then GET /threads/{thread}/messages to see the response
+agent_name = "my-kb-migrated-agent"
+questions = [
+    "What is the vacation policy?",
+    "How does the dental plan work?",
+    "What are the work from home guidelines?",
+]
+
+for q in questions:
+    conv = openai_client.conversations.create()
+    response = openai_client.responses.create(
+        model="gpt-4.1-mini",
+        input=q,
+        extra_body={
+            "agent_reference": {"name": agent_name, "type": "agent_reference"},
+            "conversation": {"id": conv.id},
+        },
+    )
+    text = ""
+    for item in (response.output or []):
+        if hasattr(item, "content"):
+            for c in (item.content or []):
+                if hasattr(c, "text"):
+                    text += c.text
+    print(f"Q: {q}")
+    print(f"A: {text[:200]}")
+    print()
 ```
+
+> **Key invocation details:**
+> - Use `agent_reference` (not `agent`) — the `agent` property is deprecated.
+> - The `type` field must be `"agent_reference"` (literal string).
+> - The `conversation` property ties responses to a stateful conversation.
 
 ### KB Troubleshooting
 
 | Error | Cause | Fix |
 |-------|-------|-----|
+| `405 Method Not Allowed` on MCP tool invocation | Foundry runtime uses SSE transport (GET) but Azure AI Search MCP requires Streamable HTTP (POST) | **Use `AzureAISearchTool` instead** (Approach A in Step 3). MCPTool is blocked until runtime adds Streamable HTTP support. |
+| `400 "'agent' property is deprecated"` | Old invocation format | Use `agent_reference` key (not `agent`) with `"type": "agent_reference"` |
+| `400 "Required properties ['type'] are not present"` | Missing `type` in `agent_reference` | Add `"type": "agent_reference"` to the `agent_reference` object |
 | `404` on KB MCP URL | Knowledge Base doesn't exist on search service | Create the KB first (Step 2) |
 | `403` on MCP connection | Foundry MI lacks RBAC on search | Assign `Search Index Data Reader` + `Search Service Contributor` to MI |
 | `401 audience` on agent call | Wrong token scope | Use `https://ai.azure.com/.default` for agent CRUD |
 | Empty KB results | Index has no data or wrong index name | Verify `indexNames` in KB definition matches your populated index |
 | MCP tool not invoked | `allowed_tools` missing | Ensure `allowed_tools: ["knowledge_base_retrieve"]` in tool config |
+| `TypeError` on `PromptAgentDefinition(name=...)` | `name` is not a valid parameter | Pass `name` to `client.agents.create_version(agent_name=...)` instead |
 
 ---
 
@@ -752,3 +867,16 @@ Copilot Skills:
 
 These skills are managed by Microsoft at [github.com/microsoft/skills](https://github.com/microsoft/skills).
 Attach the relevant skill when working on service integration code.
+
+### Context7 Reference
+
+For the latest Foundry documentation snippets (including agent APIs, search tool
+integration, and model lifecycle), use the Context7 MCP integration:
+
+```
+https://context7.com/llmstxt/microsoft_github_io_skills_llms-full_txt
+```
+
+> Context7 indexes the full Microsoft Skills reference and returns targeted
+> documentation chunks. Useful when you need to verify API schemas, parameter
+> names, or authentication patterns against the latest published docs.
